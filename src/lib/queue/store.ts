@@ -217,14 +217,12 @@ export function subscribe(l: Listener): () => void {
  *   5. cancelled (most recent first)
  */
 export function listQueue(): QueueEntry[] {
+  const key = snapshotKey();
+  if (key === _snapshotVersion && _listQueueCache.length >= 0 && _snapshotVersion !== null) {
+    return _listQueueCache;
+  }
   const all = readAll();
-  const groups: Record<string, QueueEntry[]> = {
-    ic: [],
-    we: [],
-    wr: [],
-    co: [],
-    cn: [],
-  };
+  const groups: Record<string, QueueEntry[]> = { ic: [], we: [], wr: [], co: [], cn: [] };
   for (const e of all) {
     if (e.status === "in_consultation") groups.ic.push(e);
     else if (e.status === "waiting" && e.priority === "emergency") groups.we.push(e);
@@ -237,11 +235,19 @@ export function listQueue(): QueueEntry[] {
   groups.wr.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   groups.co.sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
   groups.cn.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  return [...groups.ic, ...groups.we, ...groups.wr, ...groups.co, ...groups.cn];
+  const result = [...groups.ic, ...groups.we, ...groups.wr, ...groups.co, ...groups.cn];
+  _snapshotVersion = key;
+  _listQueueCache = result;
+  _listWaitingCache = result.filter(
+    (e) => e.status === "waiting" || e.status === "in_consultation",
+  );
+  _metricsCache = null; // metrics is derived separately; invalidate
+  return result;
 }
 
 export function listWaiting(): QueueEntry[] {
-  return listQueue().filter((e) => e.status === "waiting" || e.status === "in_consultation");
+  listQueue(); // ensure caches populated
+  return _listWaitingCache;
 }
 
 // ---- mutations ---------------------------------------------------------
