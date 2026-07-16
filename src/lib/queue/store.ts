@@ -330,6 +330,8 @@ export interface QueueMetrics {
 }
 
 export function computeMetrics(): QueueMetrics {
+  const key = snapshotKey();
+  if (_metricsCache && key === _snapshotVersion) return _metricsCache;
   const all = readAll();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -345,16 +347,14 @@ export function computeMetrics(): QueueMetrics {
     .filter((n): n is number => n !== null && n > 0);
   const avgConsultMin = durations.length
     ? durations.reduce((a, b) => a + b, 0) / durations.length
-    : 12; // sensible default before any completions
+    : 12;
 
   const waiting = todayEntries.filter((e) => e.status === "waiting");
   const inConsult = todayEntries.filter((e) => e.status === "in_consultation").length;
   const emergencies = waiting.filter((e) => e.priority === "emergency").length;
-
-  // Est wait for the *last* waiting patient in the ordered queue.
   const estWaitMin = Math.round((waiting.length + inConsult) * avgConsultMin);
 
-  return {
+  const result: QueueMetrics = {
     totalToday: todayEntries.length,
     waiting: waiting.length,
     emergencies,
@@ -363,6 +363,8 @@ export function computeMetrics(): QueueMetrics {
     avgConsultMin: Math.round(avgConsultMin),
     estWaitMin,
   };
+  _metricsCache = result;
+  return result;
 }
 
 /** Estimated wait time (min) until this specific entry is called. */
