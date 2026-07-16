@@ -19,7 +19,7 @@ const schema = z.object({
   phone: z.string().optional(),
   reason: z.string().min(3, "What is the visit for?"),
   notes: z.string().optional(),
-  emergency: z.boolean().default(false),
+  emergency: z.boolean(),
 });
 
 type FormValues = z.infer<typeof schema>;
