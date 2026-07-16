@@ -20,13 +20,20 @@ function isBrowser(): boolean {
   return typeof window !== "undefined" && typeof localStorage !== "undefined";
 }
 
+// Cached parse — critical for useSyncExternalStore snapshot stability.
+let _rawCache: string | null = null;
+let _parsedCache: QueueEntry[] = [];
+
 function readAll(): QueueEntry[] {
   if (!isBrowser()) return [];
   try {
     const raw = localStorage.getItem(QUEUE_KEY);
     if (!raw) return seed();
+    if (raw === _rawCache) return _parsedCache;
     const parsed = JSON.parse(raw) as QueueEntry[];
     if (!Array.isArray(parsed)) return seed();
+    _rawCache = raw;
+    _parsedCache = parsed;
     return parsed;
   } catch {
     return seed();
@@ -35,8 +42,23 @@ function readAll(): QueueEntry[] {
 
 function writeAll(entries: QueueEntry[]): void {
   if (!isBrowser()) return;
-  localStorage.setItem(QUEUE_KEY, JSON.stringify(entries));
+  const raw = JSON.stringify(entries);
+  localStorage.setItem(QUEUE_KEY, raw);
+  _rawCache = raw;
+  _parsedCache = entries;
+  _snapshotVersion = raw;
   emit();
+}
+
+// Snapshot memoization for useSyncExternalStore
+let _snapshotVersion: string | null = null;
+let _listQueueCache: QueueEntry[] = [];
+let _listWaitingCache: QueueEntry[] = [];
+let _metricsCache: QueueMetrics | null = null;
+
+function snapshotKey(): string {
+  if (!isBrowser()) return "server";
+  return localStorage.getItem(QUEUE_KEY) ?? "empty";
 }
 
 // ---- seed --------------------------------------------------------------
