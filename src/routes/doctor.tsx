@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -163,6 +163,9 @@ function DoctorHome() {
                 className="h-8 w-28"
               />
             </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/appointments">Appointments</Link>
+            </Button>
             <Button
               variant="outline"
               size="sm"
