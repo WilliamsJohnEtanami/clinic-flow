@@ -95,6 +95,9 @@ function ReceptionHome() {
                 {ROLE_LABEL[user.role]}
               </p>
             </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/appointments">Appointments</Link>
+            </Button>
             <Button
               variant="ghost"
               size="sm"
