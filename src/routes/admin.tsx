@@ -89,6 +89,12 @@ function AdminConsole({ userName, onSignOut }: { userName: string; onSignOut: ()
           <Logo />
           <div className="flex items-center gap-3">
             <Link
+              to="/appointments"
+              className="hidden items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground sm:inline-flex"
+            >
+              Appointments
+            </Link>
+            <Link
               to="/display"
               className="hidden items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition hover:text-foreground sm:inline-flex"
             >
