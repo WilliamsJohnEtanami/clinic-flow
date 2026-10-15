@@ -35,17 +35,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth/context";
 import { ROLE_LABEL } from "@/lib/auth/types";
-import { useQueue, useWaitEstimate, useWaiting } from "@/lib/queue/hooks";
-import { createEntry, setStatus } from "@/lib/queue/store";
+import { useCancelQueueEntry, useCreateWalkIn, useQueueList } from "@/lib/queue/api-hooks";
 import { formatDistanceToNowStrict } from "@/lib/utils/date";
 import type { QueueEntry } from "@/lib/queue/types";
 
 export const Route = createFileRoute("/patient")({
   head: () => ({
-    meta: [
-      { title: "Patient · VitaFlow" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Patient · VitaFlow" }, { name: "robots", content: "noindex" }],
   }),
   component: PatientHome,
 });
@@ -68,8 +64,9 @@ function PatientHome() {
     }
   }, [status, user, navigate]);
 
-  const queue = useQueue();
-  const waiting = useWaiting();
+  const { data: queue = [], isLoading, error } = useQueueList();
+  const waiting = useMemo(() => queue.filter((entry) => entry.status === "WAITING"), [queue]);
+  const cancelMutation = useCancelQueueEntry();
   const [confirmCancel, setConfirmCancel] = useState<QueueEntry | null>(null);
 
   // Find this user's ACTIVE entry (waiting or in consultation), most recent first
@@ -77,9 +74,7 @@ function PatientHome() {
     if (!user) return null;
     return (
       queue.find(
-        (e) =>
-          e.registeredBy === user.id &&
-          (e.status === "waiting" || e.status === "in_consultation"),
+        (e) => e.status === "WAITING" || e.status === "CALLED" || e.status === "IN_CONSULTATION",
       ) ?? null
     );
   }, [queue, user]);
@@ -89,24 +84,26 @@ function PatientHome() {
     return queue
       .filter(
         (e) =>
-          e.registeredBy === user.id &&
-          (e.status === "completed" || e.status === "cancelled"),
+          e.status === "COMPLETED" ||
+          e.status === "CANCELLED" ||
+          e.status === "SKIPPED" ||
+          e.status === "NO_SHOW",
       )
       .sort(
         (a, b) =>
-          new Date(b.completedAt ?? b.createdAt).getTime() -
-          new Date(a.completedAt ?? a.createdAt).getTime(),
+          new Date(b.consultationEndAt ?? b.updatedAt).getTime() -
+          new Date(a.consultationEndAt ?? a.updatedAt).getTime(),
       );
   }, [queue, user]);
 
   const position = useMemo(() => {
     if (!activeEntry) return 0;
-    if (activeEntry.status === "in_consultation") return 0;
+    if (activeEntry.status === "IN_CONSULTATION") return 0;
     const idx = waiting.findIndex((e) => e.id === activeEntry.id);
     return idx === -1 ? 0 : idx + 1;
   }, [activeEntry, waiting]);
 
-  const waitMin = useWaitEstimate(activeEntry?.id);
+  const waitMin = activeEntry?.estimatedWaitMin ?? 0;
 
   if (!user) {
     return (
@@ -159,7 +156,16 @@ function PatientHome() {
           </p>
         </div>
 
-        {activeEntry ? (
+        {error ? (
+          <p
+            role="alert"
+            className="rounded-lg border border-destructive/40 p-4 text-sm text-destructive"
+          >
+            Could not load your visit status: {error.message}
+          </p>
+        ) : isLoading ? (
+          <p className="text-sm text-muted-foreground">Loading your queue status…</p>
+        ) : activeEntry ? (
           <ActiveTokenCard
             entry={activeEntry}
             position={position}
@@ -190,7 +196,7 @@ function PatientHome() {
                 >
                   <span
                     className={`font-mono text-sm font-bold ${
-                      e.priority === "emergency" ? "text-emergency" : "text-primary"
+                      e.priority === "EMERGENCY" ? "text-emergency" : "text-primary"
                     }`}
                   >
                     {e.token}
@@ -198,8 +204,8 @@ function PatientHome() {
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">{e.reason}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {e.doctorName ? `${e.doctorName} · ` : ""}
-                      {new Date(e.completedAt ?? e.createdAt).toLocaleString([], {
+                      {e.doctor?.fullName ? `${e.doctor.fullName} · ` : ""}
+                      {new Date(e.consultationEndAt ?? e.updatedAt).toLocaleString([], {
                         dateStyle: "medium",
                         timeStyle: "short",
                       })}
@@ -207,7 +213,7 @@ function PatientHome() {
                   </div>
                   <span
                     className={`justify-self-end inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                      e.status === "completed"
+                      e.status === "COMPLETED"
                         ? "bg-clinic-100 text-clinic-700"
                         : "bg-destructive/10 text-destructive"
                     }`}
@@ -235,9 +241,15 @@ function PatientHome() {
             <AlertDialogAction
               onClick={() => {
                 if (!confirmCancel) return;
-                setStatus(confirmCancel.id, "cancelled");
-                toast.success(`Token ${confirmCancel.token} cancelled`);
-                setConfirmCancel(null);
+                void cancelMutation
+                  .mutateAsync({ entryId: confirmCancel.id })
+                  .then(() => {
+                    toast.success(`Token ${confirmCancel.token} cancelled`);
+                    setConfirmCancel(null);
+                  })
+                  .catch((err: unknown) => {
+                    toast.error(err instanceof Error ? err.message : "Could not cancel visit");
+                  });
               }}
             >
               Cancel visit
@@ -260,8 +272,8 @@ function ActiveTokenCard({
   waitMin: number;
   onCancel: () => void;
 }) {
-  const inConsult = entry.status === "in_consultation";
-  const isEmergency = entry.priority === "emergency";
+  const inConsult = entry.status === "IN_CONSULTATION";
+  const isEmergency = entry.priority === "EMERGENCY";
 
   return (
     <section
@@ -298,16 +310,13 @@ function ActiveTokenCard({
         <div className="grid grid-cols-2 gap-3">
           {inConsult ? (
             <>
-              <Stat label="Doctor" value={entry.doctorName ?? "—"} />
+              <Stat label="Doctor" value={entry.doctor?.fullName ?? "—"} />
               <Stat label="Room" value={entry.room ?? "—"} />
             </>
           ) : (
             <>
               <Stat label="Position" value={`#${position}`} />
-              <Stat
-                label="Est. wait"
-                value={waitMin > 0 ? `${waitMin}m` : "Soon"}
-              />
+              <Stat label="Est. wait" value={waitMin > 0 ? `${waitMin}m` : "Soon"} />
             </>
           )}
         </div>
@@ -315,9 +324,8 @@ function ActiveTokenCard({
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-5">
         <p className="font-mono text-xs text-muted-foreground">
-          Registered {formatDistanceToNowStrict(entry.createdAt)} ago
-          {entry.calledAt &&
-            ` · called ${formatDistanceToNowStrict(entry.calledAt)} ago`}
+          Registered {formatDistanceToNowStrict(entry.registeredAt)} ago
+          {entry.calledAt && ` · called ${formatDistanceToNowStrict(entry.calledAt)} ago`}
         </p>
         {!inConsult && (
           <Button variant="outline" size="sm" onClick={onCancel}>
@@ -350,7 +358,7 @@ function SelfRegisterCard({
 }: {
   user: { id: string; fullName: string; matricNumber?: string };
 }) {
-  const [submitting, setSubmitting] = useState(false);
+  const createWalkIn = useCreateWalkIn();
   const {
     register,
     handleSubmit,
@@ -365,26 +373,18 @@ function SelfRegisterCard({
   const emergency = watch("emergency");
 
   const onSubmit = handleSubmit(async (values) => {
-    setSubmitting(true);
     try {
-      const entry = createEntry({
-        patientName: user.fullName,
-        matricNumber: user.matricNumber,
+      const entry = await createWalkIn.mutateAsync({
         reason: values.reason,
         notes: values.notes,
-        priority: values.emergency ? "emergency" : "routine",
-        registeredBy: user.id,
+        priority: values.emergency ? "EMERGENCY" : "ROUTINE",
       });
       toast.success(`Token ${entry.token} issued`, {
-        description: `You're now in the ${
-          values.emergency ? "emergency" : "routine"
-        } queue.`,
+        description: `You're now in the ${values.emergency ? "emergency" : "routine"} queue.`,
       });
       reset();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to register.");
-    } finally {
-      setSubmitting(false);
     }
   });
 
@@ -465,8 +465,8 @@ function SelfRegisterCard({
             <>You'll be added to the end of the routine queue.</>
           )}
         </p>
-        <Button type="submit" disabled={submitting}>
-          {submitting ? (
+        <Button type="submit" disabled={createWalkIn.isPending}>
+          {createWalkIn.isPending ? (
             <Loader2 className="mr-2 size-4 animate-spin" />
           ) : (
             <UserPlus className="mr-2 size-4" />

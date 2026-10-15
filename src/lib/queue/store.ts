@@ -66,68 +66,123 @@ function snapshotKey(): string {
 function seed(): QueueEntry[] {
   const now = Date.now();
   const iso = (offsetMin: number) => new Date(now - offsetMin * 60_000).toISOString();
+  const seedUserId = "seed-user-id";
+  const doctorId = "doctor-001";
+  
   const entries: QueueEntry[] = [
     {
       id: genId(),
       token: "A-114",
-      patientName: "Marcus Holloway",
-      matricNumber: "CSC/2021/044",
+      patientId: "patient-001",
+      patient: {
+        id: "patient-001",
+        userId: "user-001",
+        fullName: "Marcus Holloway",
+        matricNumber: "CSC/2021/044",
+      },
+      queueType: "WALK_IN",
       reason: "Routine vaccination",
-      priority: "routine",
-      status: "in_consultation",
-      doctorName: "Dr. Aris",
+      priority: "ROUTINE",
+      status: "IN_CONSULTATION",
+      doctorId,
+      doctor: {
+        id: doctorId,
+        fullName: "Dr. Aris",
+        email: "doctor@vitaflow.edu",
+      },
       room: "Room 02",
-      registeredBy: "seed",
+      registeredById: seedUserId,
+      registeredAt: iso(28),
       createdAt: iso(28),
+      updatedAt: iso(28),
       calledAt: iso(6),
+      consultationStartAt: iso(6),
     },
     {
       id: genId(),
       token: "E-002",
-      patientName: "Sarah Jenkins",
-      matricNumber: "EEE/2022/019",
+      patientId: "patient-002",
+      patient: {
+        id: "patient-002",
+        userId: "user-002",
+        fullName: "Sarah Jenkins",
+        matricNumber: "EEE/2022/019",
+      },
+      queueType: "WALK_IN",
       reason: "Chest pain — needs urgent review",
-      priority: "emergency",
-      status: "waiting",
-      registeredBy: "seed",
+      priority: "EMERGENCY",
+      status: "WAITING",
+      registeredById: seedUserId,
+      registeredAt: iso(4),
       createdAt: iso(4),
+      updatedAt: iso(4),
     },
     {
       id: genId(),
       token: "A-115",
-      patientName: "Lydia Chen",
-      matricNumber: "ARC/2023/108",
+      patientId: "patient-003",
+      patient: {
+        id: "patient-003",
+        userId: "user-003",
+        fullName: "Lydia Chen",
+        matricNumber: "ARC/2023/108",
+      },
+      queueType: "WALK_IN",
       reason: "General consultation",
-      priority: "routine",
-      status: "waiting",
-      registeredBy: "seed",
+      priority: "ROUTINE",
+      status: "WAITING",
+      registeredById: seedUserId,
+      registeredAt: iso(16),
       createdAt: iso(16),
+      updatedAt: iso(16),
     },
     {
       id: genId(),
       token: "A-116",
-      patientName: "David Owalabi",
-      matricNumber: "MEC/2020/077",
+      patientId: "patient-004",
+      patient: {
+        id: "patient-004",
+        userId: "user-004",
+        fullName: "David Owalabi",
+        matricNumber: "MEC/2020/077",
+      },
+      queueType: "WALK_IN",
       reason: "Follow-up on lab results",
-      priority: "routine",
-      status: "waiting",
-      registeredBy: "seed",
+      priority: "ROUTINE",
+      status: "WAITING",
+      registeredById: seedUserId,
+      registeredAt: iso(10),
       createdAt: iso(10),
+      updatedAt: iso(10),
     },
     {
       id: genId(),
       token: "A-113",
-      patientName: "Adaeze Nwafor",
-      matricNumber: "LAW/2022/002",
+      patientId: "patient-005",
+      patient: {
+        id: "patient-005",
+        userId: "user-005",
+        fullName: "Adaeze Nwafor",
+        matricNumber: "LAW/2022/002",
+      },
+      queueType: "WALK_IN",
       reason: "Migraine",
-      priority: "routine",
-      status: "completed",
-      doctorName: "Dr. Aris",
+      priority: "ROUTINE",
+      status: "COMPLETED",
+      doctorId,
+      doctor: {
+        id: doctorId,
+        fullName: "Dr. Aris",
+        email: "doctor@vitaflow.edu",
+      },
       room: "Room 02",
-      registeredBy: "seed",
+      registeredById: seedUserId,
+      registeredAt: iso(90),
       createdAt: iso(90),
+      updatedAt: iso(52),
       calledAt: iso(70),
-      completedAt: iso(52),
+      consultationStartAt: iso(70),
+      consultationEndAt: iso(52),
     },
   ];
   writeAllRaw(entries);
@@ -224,10 +279,10 @@ export function listQueue(): QueueEntry[] {
   const all = readAll();
   const groups: Record<string, QueueEntry[]> = { ic: [], we: [], wr: [], co: [], cn: [] };
   for (const e of all) {
-    if (e.status === "in_consultation") groups.ic.push(e);
-    else if (e.status === "waiting" && e.priority === "emergency") groups.we.push(e);
-    else if (e.status === "waiting") groups.wr.push(e);
-    else if (e.status === "completed") groups.co.push(e);
+    if (e.status === "IN_CONSULTATION") groups.ic.push(e);
+    else if (e.status === "WAITING" && e.priority === "EMERGENCY") groups.we.push(e);
+    else if (e.status === "WAITING") groups.wr.push(e);
+    else if (e.status === "COMPLETED") groups.co.push(e);
     else groups.cn.push(e);
   }
   groups.ic.sort((a, b) => (a.calledAt ?? "").localeCompare(b.calledAt ?? ""));
@@ -238,9 +293,7 @@ export function listQueue(): QueueEntry[] {
   const result = [...groups.ic, ...groups.we, ...groups.wr, ...groups.co, ...groups.cn];
   _snapshotVersion = key;
   _listQueueCache = result;
-  _listWaitingCache = result.filter(
-    (e) => e.status === "waiting" || e.status === "in_consultation",
-  );
+  _listWaitingCache = [...groups.ic, ...groups.we, ...groups.wr];
   _metricsCache = null; // metrics is derived separately; invalidate
   return result;
 }
@@ -248,6 +301,11 @@ export function listQueue(): QueueEntry[] {
 export function listWaiting(): QueueEntry[] {
   listQueue(); // ensure caches populated
   return _listWaitingCache;
+}
+
+// Waiting means WAITING or IN_CONSULTATION status
+function isWaitingEntry(e: QueueEntry): boolean {
+  return e.status === "WAITING" || e.status === "IN_CONSULTATION";
 }
 
 // ---- mutations ---------------------------------------------------------
@@ -271,7 +329,7 @@ export function createEntry(input: CreateEntryInput): QueueEntry {
     phone: input.phone?.trim() || undefined,
     reason: input.reason.trim(),
     priority: input.priority,
-    status: "waiting",
+    status: "WAITING",
     notes: input.notes?.trim() || undefined,
     registeredBy: input.registeredBy,
     createdAt: new Date().toISOString(),
@@ -294,17 +352,17 @@ export function updateEntry(id: string, patch: Partial<QueueEntry>): QueueEntry 
 export function setStatus(id: string, status: QueueStatus, extra: Partial<QueueEntry> = {}) {
   const now = new Date().toISOString();
   const stamp: Partial<QueueEntry> = { status };
-  if (status === "in_consultation") stamp.calledAt = now;
-  if (status === "completed" || status === "cancelled") stamp.completedAt = now;
+  if (status === "IN_CONSULTATION") stamp.calledAt = now;
+  if (status === "COMPLETED" || status === "CANCELLED") stamp.completedAt = now;
   return updateEntry(id, { ...stamp, ...extra });
 }
 
 export function togglePriority(id: string): QueueEntry | null {
   const all = readAll();
   const entry = all.find((e) => e.id === id);
-  if (!entry || entry.status !== "waiting") return null;
+  if (!entry || entry.status !== "WAITING") return null;
   return updateEntry(id, {
-    priority: entry.priority === "emergency" ? "routine" : "emergency",
+    priority: entry.priority === "EMERGENCY" ? "ROUTINE" : "EMERGENCY",
   });
 }
 
@@ -337,7 +395,7 @@ export function computeMetrics(): QueueMetrics {
   startOfDay.setHours(0, 0, 0, 0);
   const todayEntries = all.filter((e) => new Date(e.createdAt) >= startOfDay);
 
-  const completed = todayEntries.filter((e) => e.status === "completed");
+  const completed = todayEntries.filter((e) => e.status === "COMPLETED");
   const durations = completed
     .map((e) =>
       e.calledAt && e.completedAt
@@ -349,9 +407,9 @@ export function computeMetrics(): QueueMetrics {
     ? durations.reduce((a, b) => a + b, 0) / durations.length
     : 12;
 
-  const waiting = todayEntries.filter((e) => e.status === "waiting");
-  const inConsult = todayEntries.filter((e) => e.status === "in_consultation").length;
-  const emergencies = waiting.filter((e) => e.priority === "emergency").length;
+  const waiting = todayEntries.filter((e) => e.status === "WAITING");
+  const inConsult = todayEntries.filter((e) => e.status === "IN_CONSULTATION").length;
+  const emergencies = waiting.filter((e) => e.priority === "EMERGENCY").length;
   const estWaitMin = Math.round((waiting.length + inConsult) * avgConsultMin);
 
   const result: QueueMetrics = {
@@ -373,8 +431,8 @@ export function estimateWaitFor(id: string): number {
   const idx = ordered.findIndex((e) => e.id === id);
   if (idx === -1) return 0;
   const { avgConsultMin } = computeMetrics();
-  const ahead = ordered.slice(0, idx).filter((e) => e.status !== "in_consultation").length;
-  const inConsult = ordered.slice(0, idx).some((e) => e.status === "in_consultation") ? 1 : 0;
+  const ahead = ordered.slice(0, idx).filter((e) => e.status !== "IN_CONSULTATION").length;
+  const inConsult = ordered.slice(0, idx).some((e) => e.status === "IN_CONSULTATION") ? 1 : 0;
   return Math.max(0, Math.round((ahead + inConsult) * avgConsultMin));
 }
 

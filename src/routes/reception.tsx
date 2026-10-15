@@ -22,16 +22,13 @@ import { QueueTable } from "@/components/queue/queue-table";
 import { WalkInForm } from "@/components/queue/walk-in-form";
 import { useAuth } from "@/lib/auth/context";
 import { ROLE_LABEL } from "@/lib/auth/types";
-import { useMetrics, useQueue } from "@/lib/queue/hooks";
-import { resetQueue, setStatus, togglePriority } from "@/lib/queue/store";
+import { computeApiMetrics } from "@/lib/queue/api-metrics";
+import { useCancelQueueEntry, useQueueList, useTogglePriority } from "@/lib/queue/api-hooks";
 import type { QueueEntry } from "@/lib/queue/types";
 
 export const Route = createFileRoute("/reception")({
   head: () => ({
-    meta: [
-      { title: "Reception · VitaFlow" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Reception · VitaFlow" }, { name: "robots", content: "noindex" }],
   }),
   component: ReceptionHome,
 });
@@ -49,27 +46,32 @@ function ReceptionHome() {
     }
   }, [status, user, navigate]);
 
-  const queue = useQueue();
-  const metrics = useMetrics();
+  const { data: queue = [], isLoading, error, refetch } = useQueueList();
+  const metrics = useMemo(() => computeApiMetrics(queue), [queue]);
+  const cancelMutation = useCancelQueueEntry();
+  const priorityMutation = useTogglePriority();
 
   const [filter, setFilter] = useState<Filter>("active");
   const [search, setSearch] = useState("");
   const [confirmCancel, setConfirmCancel] = useState<QueueEntry | null>(null);
-  const [confirmReset, setConfirmReset] = useState(false);
 
   const filtered = useMemo(() => {
     let list = queue;
     if (filter === "active")
-      list = list.filter((e) => e.status === "waiting" || e.status === "in_consultation");
+      list = list.filter(
+        (e) => e.status === "WAITING" || e.status === "CALLED" || e.status === "IN_CONSULTATION",
+      );
     else if (filter === "completed")
-      list = list.filter((e) => e.status === "completed" || e.status === "cancelled");
+      list = list.filter((e) =>
+        ["COMPLETED", "CANCELLED", "SKIPPED", "NO_SHOW"].includes(e.status),
+      );
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       list = list.filter(
         (e) =>
           e.token.toLowerCase().includes(q) ||
-          e.patientName.toLowerCase().includes(q) ||
-          (e.matricNumber ?? "").toLowerCase().includes(q),
+          e.patient.fullName.toLowerCase().includes(q) ||
+          (e.patient.matricNumber ?? "").toLowerCase().includes(q),
       );
     }
     return list;
@@ -98,13 +100,8 @@ function ReceptionHome() {
             <Button asChild variant="ghost" size="sm">
               <Link to="/appointments">Appointments</Link>
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setConfirmReset(true)}
-              title="Reset demo queue"
-            >
-              <RefreshCw className="mr-2 size-4" /> Reset demo
+            <Button variant="ghost" size="sm" onClick={() => void refetch()} title="Refresh queue">
+              <RefreshCw className="mr-2 size-4" /> Refresh
             </Button>
             <Button
               variant="outline"
@@ -131,10 +128,22 @@ function ReceptionHome() {
           </p>
         </div>
 
+        {isLoading && <p className="mb-4 text-sm text-muted-foreground">Loading queue…</p>}
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 flex items-center justify-between rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+          >
+            <span>Queue could not be loaded: {error.message}</span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>
+              Retry
+            </Button>
+          </div>
+        )}
         <KpiCards metrics={metrics} />
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-          <WalkInForm registeredBy={user.id} />
+          <WalkInForm />
 
           <div>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -160,14 +169,16 @@ function ReceptionHome() {
 
             <QueueTable
               entries={filtered}
-              onTogglePriority={(entry) => {
-                const next = togglePriority(entry.id);
-                if (next) {
+              onTogglePriority={async (entry) => {
+                try {
+                  await priorityMutation.mutateAsync(entry.id);
                   toast.success(
-                    next.priority === "emergency"
-                      ? `${entry.token} escalated to emergency`
-                      : `${entry.token} downgraded to routine`,
+                    entry.priority === "EMERGENCY"
+                      ? `${entry.token} downgraded to routine`
+                      : `${entry.token} escalated to emergency`,
                   );
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Unable to change priority");
                 }
               }}
               onCancel={(entry) => setConfirmCancel(entry)}
@@ -189,43 +200,24 @@ function ReceptionHome() {
             <AlertDialogTitle>Cancel this token?</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmCancel &&
-                `Token ${confirmCancel.token} · ${confirmCancel.patientName} will be removed from the active queue. This can't be undone.`}
+                `Token ${confirmCancel.token} · ${confirmCancel.patient.fullName} will be removed from the active queue. This can't be undone.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep in queue</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
+              onClick={async () => {
                 if (!confirmCancel) return;
-                setStatus(confirmCancel.id, "cancelled");
-                toast.success(`Token ${confirmCancel.token} cancelled`);
-                setConfirmCancel(null);
+                try {
+                  await cancelMutation.mutateAsync({ entryId: confirmCancel.id });
+                  toast.success(`Token ${confirmCancel.token} cancelled`);
+                  setConfirmCancel(null);
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : "Unable to cancel token");
+                }
               }}
             >
               Cancel token
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reset the demo queue?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This clears every patient in this browser and reseeds the sample data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep data</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                resetQueue();
-                toast.success("Queue reset");
-                setConfirmReset(false);
-              }}
-            >
-              Reset queue
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

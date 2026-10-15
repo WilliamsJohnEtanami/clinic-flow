@@ -222,7 +222,9 @@
 
 @utility font-mono {
   font-family: var(--font-mono);
-  font-feature-settings: "tnum" 1, "ss01" 1;
+  font-feature-settings:
+    "tnum" 1,
+    "ss01" 1;
 }
 
 @utility text-token {

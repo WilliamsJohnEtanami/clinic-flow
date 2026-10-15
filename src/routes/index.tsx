@@ -87,27 +87,26 @@ function Hero() {
               Live queue system for school healthcare
             </div>
             <h1 className="text-balance text-4xl font-bold tracking-tight md:text-6xl">
-              Smart patient flow for{" "}
-              <span className="text-primary">campus clinics.</span>
+              Smart patient flow for <span className="text-primary">campus clinics.</span>
             </h1>
             <p className="max-w-xl text-lg leading-relaxed text-muted-foreground">
-              VitaFlow digitizes registration, organizes walk-ins and appointments,
-              prioritizes emergencies non-preemptively, and predicts waiting times in
-              real time — without the weight of a hospital EMR.
+              VitaFlow digitizes registration, organizes walk-ins and appointments, prioritizes
+              emergencies non-preemptively, and predicts waiting times in real time — without the
+              weight of a hospital EMR.
             </p>
             <div className="flex flex-wrap gap-3">
               <Button size="lg" asChild>
                 <Link to="/auth" search={{ mode: "signup" }}>
-                  Launch your clinic
+                  Create patient account
                   <ArrowRight className="ml-2 size-4" />
                 </Link>
               </Button>
               <Button size="lg" variant="outline" asChild>
-                <a href="#queue">See live queue</a>
+                <Link to="/display">See live queue</Link>
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Demo credentials available on the sign-in page — no setup required.
+              Clinic staff accounts are created by an administrator.
             </p>
           </div>
 
@@ -156,13 +155,8 @@ function HeroPreview() {
 
         <div className="grid grid-cols-2 gap-3">
           {["A-115", "B-042", "A-116", "C-009"].map((t) => (
-            <div
-              key={t}
-              className="rounded-xl bg-white/5 p-4 ring-1 ring-white/5"
-            >
-              <p className="text-[9px] font-bold uppercase tracking-widest text-white/40">
-                Token
-              </p>
+            <div key={t} className="rounded-xl bg-white/5 p-4 ring-1 ring-white/5">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-white/40">Token</p>
               <p className="mt-1 font-mono text-2xl font-bold text-background">{t}</p>
             </div>
           ))}
@@ -286,9 +280,9 @@ function QueueMockup() {
               Emergencies jump the line — the current consultation still finishes.
             </h2>
             <p className="mt-4 text-muted-foreground">
-              A patient marked emergency is inserted before every routine patient in
-              the queue, but the doctor in session is never interrupted. When they
-              finish, the emergency case is next.
+              A patient marked emergency is inserted before every routine patient in the queue, but
+              the doctor in session is never interrupted. When they finish, the emergency case is
+              next.
             </p>
             <ul className="mt-6 space-y-3 text-sm">
               {[
@@ -403,7 +397,9 @@ function QueueRow({
         </div>
       </div>
       <div className="hidden items-center gap-4 sm:flex">
-        <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${toneClasses[statusTone]}`}>
+        <span
+          className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${toneClasses[statusTone]}`}
+        >
           {status}
         </span>
         <span className="font-mono text-xs text-muted-foreground">{assignee}</span>
@@ -467,13 +463,13 @@ function CTA() {
           Ready to run your clinic like a control tower?
         </h2>
         <p className="mx-auto mt-4 max-w-xl text-background/70">
-          Sign in with a demo account — Admin, Doctor, Receptionist, or Patient — and
-          explore every workflow in seconds.
+          Sign in to your staff account, or create a patient account to book appointments and track
+          your place in the queue.
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Button size="lg" variant="secondary" asChild>
-            <Link to="/auth">
-              Sign in to demo
+            <Link to="/auth" search={{ mode: "signup" }}>
+              Create patient account
               <ArrowRight className="ml-2 size-4" />
             </Link>
           </Button>

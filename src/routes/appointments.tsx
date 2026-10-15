@@ -1,14 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  CalendarClock,
-  CheckCircle2,
-  LogIn,
-  Plus,
-  UserRound,
-  X,
-} from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckCircle2, LogIn, Plus, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Logo } from "@/components/brand/logo";
@@ -37,30 +29,21 @@ import {
 
 import { useAuth } from "@/lib/auth/context";
 import { ROLE_HOME, ROLE_LABEL } from "@/lib/auth/types";
-import { useAppointments } from "@/lib/appointments/hooks";
 import {
-  cancelAppointment,
-  checkInAppointment,
-  createAppointment,
-  markNoShow,
-} from "@/lib/appointments/store";
+  useAppointmentsList,
+  useCancelAppointment,
+  useCreateAppointment,
+  useUpdateAppointmentStatus,
+} from "@/lib/appointments/api-hooks";
+import { useCreateFromAppointment } from "@/lib/queue/api-hooks";
 import type { Appointment, AppointmentStatus } from "@/lib/appointments/types";
 
 export const Route = createFileRoute("/appointments")({
   head: () => ({
-    meta: [
-      { title: "Appointments · VitaFlow" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Appointments · VitaFlow" }, { name: "robots", content: "noindex" }],
   }),
   component: AppointmentsPage,
 });
-
-const DOCTORS = [
-  { id: "doc-aris", name: "Dr. Aris" },
-  { id: "doc-nkechi", name: "Dr. Nkechi" },
-  { id: "doc-lin", name: "Dr. Lin" },
-];
 
 type Filter = "upcoming" | "today" | "past" | "all";
 
@@ -72,7 +55,10 @@ function AppointmentsPage() {
     if (status === "anonymous") navigate({ to: "/auth" });
   }, [status, navigate]);
 
-  const all = useAppointments();
+  const { data: all = [], isLoading, error } = useAppointmentsList();
+  const createFromAppointment = useCreateFromAppointment();
+  const cancelMutation = useCancelAppointment();
+  const statusMutation = useUpdateAppointmentStatus();
   const [filter, setFilter] = useState<Filter>("upcoming");
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
@@ -80,24 +66,6 @@ function AppointmentsPage() {
 
   const scoped = useMemo(() => {
     if (!user) return [];
-    if (user.role === "doctor") {
-      // Match by fullName since doctorName is stored on appointment
-      return all.filter(
-        (a) =>
-          a.doctorName?.toLowerCase() === user.fullName.toLowerCase() ||
-          a.doctorId === user.id,
-      );
-    }
-    if (user.role === "patient") {
-      return all.filter(
-        (a) =>
-          a.patientId === user.id ||
-          a.patientName.toLowerCase() === user.fullName.toLowerCase() ||
-          (user.matricNumber &&
-            a.matricNumber?.toLowerCase() === user.matricNumber.toLowerCase()),
-      );
-    }
-    // admin / receptionist
     return all;
   }, [all, user]);
 
@@ -116,9 +84,7 @@ function AppointmentsPage() {
       );
     else if (filter === "today")
       list = list.filter(
-        (a) =>
-          new Date(a.scheduledFor) >= startOfDay &&
-          new Date(a.scheduledFor) <= endOfDay,
+        (a) => new Date(a.scheduledFor) >= startOfDay && new Date(a.scheduledFor) <= endOfDay,
       );
     else if (filter === "past")
       list = list.filter(
@@ -149,8 +115,7 @@ function AppointmentsPage() {
     );
   }
 
-  const canBook =
-    user.role === "receptionist" || user.role === "admin" || user.role === "patient";
+  const canBook = user.role === "receptionist" || user.role === "admin" || user.role === "patient";
   const canCheckIn = user.role === "receptionist" || user.role === "admin";
 
   return (
@@ -172,18 +137,12 @@ function AppointmentsPage() {
               <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">
                 Appointments
               </p>
-              <p className="text-sm font-semibold text-foreground">
-                {ROLE_LABEL[user.role]} view
-              </p>
+              <p className="text-sm font-semibold text-foreground">{ROLE_LABEL[user.role]} view</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {canBook && (
-              <Button
-                size="sm"
-                onClick={() => setShowForm((v) => !v)}
-                className="gap-1.5"
-              >
+              <Button size="sm" onClick={() => setShowForm((v) => !v)} className="gap-1.5">
                 <Plus className="h-4 w-4" />
                 Book
               </Button>
@@ -201,12 +160,10 @@ function AppointmentsPage() {
           <div className="mb-6 rounded-xl border border-border/70 bg-card p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-foreground">
-                  New appointment
-                </h2>
+                <h2 className="text-base font-semibold text-foreground">New appointment</h2>
                 <p className="text-xs text-muted-foreground">
-                  Book a scheduled visit — it will appear in the doctor's day view
-                  and can be checked in on arrival.
+                  Book a scheduled visit — it will appear in the doctor's day view and can be
+                  checked in on arrival.
                 </p>
               </div>
               <button
@@ -219,9 +176,8 @@ function AppointmentsPage() {
             </div>
             <BookForm
               defaultPatientName={user.role === "patient" ? user.fullName : ""}
-              defaultMatric={user.role === "patient" ? user.matricNumber ?? "" : ""}
-              defaultPatientId={user.role === "patient" ? user.id : undefined}
-              createdBy={user.id}
+              defaultMatric={user.role === "patient" ? (user.matricNumber ?? "") : ""}
+              isPatient={user.role === "patient"}
               onCreated={() => {
                 setShowForm(false);
                 toast.success("Appointment booked");
@@ -258,12 +214,16 @@ function AppointmentsPage() {
             <div className="col-span-1">Doctor</div>
             <div className="col-span-2 text-right">Status · Actions</div>
           </div>
-          {filtered.length === 0 ? (
+          {error ? (
+            <p role="alert" className="p-5 text-sm text-destructive">
+              Could not load appointments: {error.message}
+            </p>
+          ) : isLoading ? (
+            <p className="p-5 text-sm text-muted-foreground">Loading appointments…</p>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 px-4 py-14 text-center">
               <CalendarClock className="h-6 w-6 text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">
-                No appointments here
-              </p>
+              <p className="text-sm font-medium text-foreground">No appointments here</p>
               <p className="text-xs text-muted-foreground">
                 {canBook
                   ? "Book one to see it appear in the list."
@@ -277,15 +237,22 @@ function AppointmentsPage() {
                   key={a.id}
                   appt={a}
                   canCheckIn={canCheckIn}
-                  onCheckIn={() => {
-                    const res = checkInAppointment(a.id, user.id);
-                    if (res) toast.success(`${a.patientName} checked in`);
-                    else toast.error("Unable to check in");
+                  onCheckIn={async () => {
+                    try {
+                      await createFromAppointment.mutateAsync(a.id);
+                      toast.success(`${a.patientName} checked in`);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Unable to check in");
+                    }
                   }}
                   onCancel={() => setConfirmCancel(a)}
-                  onNoShow={() => {
-                    markNoShow(a.id);
-                    toast.message(`Marked ${a.patientName} as no-show`);
+                  onNoShow={async () => {
+                    try {
+                      await statusMutation.mutateAsync({ id: a.id, status: "NO_SHOW" });
+                      toast.message(`Marked ${a.patientName} as no-show`);
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Unable to mark no-show");
+                    }
                   }}
                 />
               ))}
@@ -294,10 +261,7 @@ function AppointmentsPage() {
         </div>
       </main>
 
-      <AlertDialog
-        open={!!confirmCancel}
-        onOpenChange={(open) => !open && setConfirmCancel(null)}
-      >
+      <AlertDialog open={!!confirmCancel} onOpenChange={(open) => !open && setConfirmCancel(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel appointment?</AlertDialogTitle>
@@ -311,9 +275,17 @@ function AppointmentsPage() {
             <AlertDialogAction
               onClick={() => {
                 if (!confirmCancel) return;
-                cancelAppointment(confirmCancel.id);
-                toast.success("Appointment cancelled");
-                setConfirmCancel(null);
+                void cancelMutation
+                  .mutateAsync({ id: confirmCancel.id })
+                  .then(() => {
+                    toast.success("Appointment cancelled");
+                    setConfirmCancel(null);
+                  })
+                  .catch((err: unknown) => {
+                    toast.error(
+                      err instanceof Error ? err.message : "Unable to cancel appointment",
+                    );
+                  });
               }}
             >
               Cancel appointment
@@ -360,9 +332,7 @@ function ApptRow({
             {initials(appt.patientName)}
           </div>
           <div className="min-w-0">
-            <div className="truncate font-medium text-foreground">
-              {appt.patientName}
-            </div>
+            <div className="truncate font-medium text-foreground">{appt.patientName}</div>
             {appt.matricNumber && (
               <div className="truncate font-mono text-[11px] text-muted-foreground">
                 {appt.matricNumber}
@@ -374,15 +344,11 @@ function ApptRow({
       <div className="col-span-3">
         <div className="truncate text-foreground">{appt.reason}</div>
         {appt.notes && (
-          <div className="truncate text-[11px] text-muted-foreground">
-            {appt.notes}
-          </div>
+          <div className="truncate text-[11px] text-muted-foreground">{appt.notes}</div>
         )}
       </div>
       <div className="col-span-1">
-        <div className="truncate text-[13px] text-foreground">
-          {appt.doctorName ?? "—"}
-        </div>
+        <div className="truncate text-[13px] text-foreground">{appt.doctorName ?? "—"}</div>
       </div>
       <div className="col-span-2 flex items-center justify-end gap-2">
         <StatusPill status={appt.status} />
@@ -447,55 +413,50 @@ function StatusPill({ status }: { status: AppointmentStatus }) {
 function BookForm({
   defaultPatientName,
   defaultMatric,
-  defaultPatientId,
-  createdBy,
+  isPatient,
   onCreated,
 }: {
   defaultPatientName: string;
   defaultMatric: string;
-  defaultPatientId?: string;
-  createdBy: string;
+  isPatient: boolean;
   onCreated: () => void;
 }) {
   const [patientName, setPatientName] = useState(defaultPatientName);
   const [matric, setMatric] = useState(defaultMatric);
   const [phone, setPhone] = useState("");
   const [reason, setReason] = useState("");
-  const [doctorId, setDoctorId] = useState<string>(DOCTORS[0].id);
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [time, setTime] = useState("09:00");
   const [duration, setDuration] = useState("20");
   const [notes, setNotes] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const createAppointment = useCreateAppointment();
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!patientName.trim() || !reason.trim()) {
       toast.error("Patient name and reason are required");
       return;
     }
-    const iso = new Date(`${date}T${time}`).toISOString();
-    if (isNaN(new Date(iso).getTime())) {
+    const scheduledAt = new Date(`${date}T${time}`);
+    if (Number.isNaN(scheduledAt.getTime())) {
       toast.error("Invalid date or time");
       return;
     }
-    const doctor = DOCTORS.find((d) => d.id === doctorId);
-    setSubmitting(true);
-    createAppointment({
-      patientName,
-      patientId: defaultPatientId,
-      matricNumber: matric,
-      phone,
-      reason,
-      scheduledFor: iso,
-      durationMin: Number(duration) || 20,
-      doctorId: doctor?.id,
-      doctorName: doctor?.name,
-      notes,
-      createdBy,
-    });
-    setSubmitting(false);
-    onCreated();
+    const iso = scheduledAt.toISOString();
+    try {
+      await createAppointment.mutateAsync({
+        patientName: patientName.trim(),
+        matricNumber: matric.trim() || undefined,
+        phone: isPatient ? undefined : phone.trim() || undefined,
+        reason: reason.trim(),
+        scheduledFor: iso,
+        durationMin: Number(duration) || 20,
+        notes: notes.trim() || undefined,
+      });
+      onCreated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not book appointment");
+    }
   };
 
   return (
@@ -528,20 +489,8 @@ function BookForm({
           placeholder="Optional"
         />
       </div>
-      <div className="space-y-1.5">
-        <Label htmlFor="doc">Doctor</Label>
-        <Select value={doctorId} onValueChange={setDoctorId}>
-          <SelectTrigger id="doc">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {DOCTORS.map((d) => (
-              <SelectItem key={d.id} value={d.id}>
-                {d.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex items-end text-xs text-muted-foreground">
+        Doctor assignment is handled by the clinic when the appointment is reviewed.
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="dt">Date</Label>
@@ -589,7 +538,7 @@ function BookForm({
         />
       </div>
       <div className="md:col-span-2">
-        <Button type="submit" disabled={submitting} className="gap-1.5">
+        <Button type="submit" disabled={createAppointment.isPending} className="gap-1.5">
           <UserRound className="h-4 w-4" />
           Book appointment
         </Button>

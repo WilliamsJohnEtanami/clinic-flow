@@ -8,6 +8,8 @@ import {
   Stethoscope,
   Timer,
   UserCircle2,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,17 +31,19 @@ import {
 import { QueueTable } from "@/components/queue/queue-table";
 import { useAuth } from "@/lib/auth/context";
 import { ROLE_LABEL } from "@/lib/auth/types";
-import { useMetrics, useQueue } from "@/lib/queue/hooks";
-import { setStatus, updateEntry } from "@/lib/queue/store";
+import {
+  useQueueList,
+  useStartConsultation,
+  useCompleteConsultation,
+  useCancelQueueEntry,
+  useCallNext,
+} from "@/lib/queue/api-hooks";
 import { formatDistanceToNowStrict } from "@/lib/utils/date";
 import type { QueueEntry } from "@/lib/queue/types";
 
 export const Route = createFileRoute("/doctor")({
   head: () => ({
-    meta: [
-      { title: "Doctor · VitaFlow" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Doctor · VitaFlow" }, { name: "robots", content: "noindex" }],
   }),
   component: DoctorHome,
 });
@@ -57,8 +61,14 @@ function DoctorHome() {
     }
   }, [status, user, navigate]);
 
-  const queue = useQueue();
-  const metrics = useMetrics();
+  // Fetch queue from API
+  const { data: queueData = [], isLoading, error } = useQueueList();
+
+  // Mutations for actions
+  const startConsultMutation = useStartConsultation();
+  const callNextMutation = useCallNext();
+  const completeConsultMutation = useCompleteConsultation();
+  const cancelMutation = useCancelQueueEntry();
 
   const [room, setRoom] = useState("Room 01");
   useEffect(() => {
@@ -76,33 +86,43 @@ function DoctorHome() {
 
   // Currently in consultation with THIS doctor
   const currentPatient = useMemo(
-    () =>
-      queue.find(
-        (e) => e.status === "in_consultation" && e.doctorId === user?.id,
-      ) ?? null,
-    [queue, user?.id],
+    () => queueData.find((e) => e.status === "IN_CONSULTATION" && e.doctorId === user?.id) ?? null,
+    [queueData, user?.id],
   );
 
-  // Waiting list (emergency first via store ordering)
-  const waiting = useMemo(
-    () => queue.filter((e) => e.status === "waiting"),
-    [queue],
-  );
+  // Waiting list (emergency first)
+  const waiting = useMemo(() => queueData.filter((e) => e.status === "WAITING"), [queueData]);
 
   // Completed today by this doctor
   const completedByMe = useMemo(
-    () =>
-      queue.filter(
-        (e) => e.status === "completed" && e.doctorId === user?.id,
-      ),
-    [queue, user?.id],
+    () => queueData.filter((e) => e.status === "COMPLETED" && e.doctorId === user?.id),
+    [queueData, user?.id],
   );
 
   const nextInLine = waiting[0] ?? null;
 
+  // Calculate metrics locally
+  const emergencies = queueData.filter(
+    (e) => e.priority === "EMERGENCY" && e.status === "WAITING",
+  ).length;
+  const inConsultation = queueData.filter((e) => e.status === "IN_CONSULTATION").length;
+  const completedToday = queueData.filter((e) => e.status === "COMPLETED").length;
+
+  // Calculate average consultation time (in minutes)
+  const completedConsultations = queueData.filter(
+    (e) => e.status === "COMPLETED" && e.actualWaitMin,
+  );
+  const avgConsultMin =
+    completedConsultations.length > 0
+      ? Math.round(
+          completedConsultations.reduce((sum, e) => sum + (e.actualWaitMin || 0), 0) /
+            completedConsultations.length,
+        )
+      : 0;
+
   useEffect(() => {
     setConsultNotes(currentPatient?.notes ?? "");
-  }, [currentPatient?.id]);
+  }, [currentPatient?.id, currentPatient?.notes]);
 
   if (!user) {
     return (
@@ -112,32 +132,49 @@ function DoctorHome() {
     );
   }
 
-  const callPatient = (entry: QueueEntry) => {
+  const callPatient = async (entry: QueueEntry) => {
     if (currentPatient) {
       toast.error("Finish the current consultation first.");
       return;
     }
-    setStatus(entry.id, "in_consultation", {
-      doctorId: user.id,
-      doctorName: user.fullName,
-      room,
-    });
-    toast.success(`Called ${entry.token} · ${entry.patientName}`, {
-      description: `${room} · ${user.fullName}`,
-    });
+    try {
+      const called = await callNextMutation.mutateAsync();
+      await startConsultMutation.mutateAsync({ entryId: called.id, room });
+      toast.success(`Called ${entry.token}`, {
+        description: `${room} · ${user.fullName}`,
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to call patient");
+    }
   };
 
-  const completeConsult = () => {
+  const completeConsult = async () => {
     if (!confirmComplete) return;
-    // Persist any note edits before completing
-    if (consultNotes !== (confirmComplete.notes ?? "")) {
-      updateEntry(confirmComplete.id, { notes: consultNotes });
+    try {
+      // Calculate duration
+      await completeConsultMutation.mutateAsync({
+        entryId: confirmComplete.id,
+        notes: consultNotes,
+      });
+      toast.success(`Consultation complete · ${confirmComplete.token}`);
+      setConfirmComplete(null);
+      setConsultNotes("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to complete consultation");
     }
-    setStatus(confirmComplete.id, "completed");
-    toast.success(`Consultation complete · ${confirmComplete.token}`);
-    setConfirmComplete(null);
-    setConsultNotes("");
   };
+
+  if (error) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-background">
+        <div className="text-center space-y-4">
+          <AlertCircle className="size-12 text-destructive mx-auto" />
+          <p className="text-sm text-destructive">Failed to load queue</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -153,7 +190,10 @@ function DoctorHome() {
               </p>
             </div>
             <div className="hidden items-center gap-2 md:flex">
-              <Label htmlFor="doctor-room" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="doctor-room"
+                className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground"
+              >
                 Room
               </Label>
               <Input
@@ -186,33 +226,23 @@ function DoctorHome() {
             Doctor Console
           </p>
           <h1 className="mt-2 text-3xl font-bold tracking-tight">
-            {currentPatient ? "In consultation" : nextInLine ? "Ready for next patient" : "All clear"}
+            {currentPatient
+              ? "In consultation"
+              : nextInLine
+                ? "Ready for next patient"
+                : "All clear"}
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Emergencies always jump ahead of routine visits, but consultations in progress are never interrupted.
+            Emergencies always jump ahead of routine visits, but consultations in progress are never
+            interrupted.
           </p>
         </div>
 
         {/* KPI strip */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <MiniStat
-            label="Waiting"
-            value={metrics.waiting}
-            icon={ClipboardList}
-            tone="muted"
-          />
-          <MiniStat
-            label="Emergencies"
-            value={metrics.emergencies}
-            icon={ClipboardList}
-            tone="emergency"
-          />
-          <MiniStat
-            label="Avg consult"
-            value={`${metrics.avgConsultMin}m`}
-            icon={Timer}
-            tone="primary"
-          />
+          <MiniStat label="Waiting" value={waiting.length} icon={ClipboardList} tone="muted" />
+          <MiniStat label="Emergencies" value={emergencies} icon={ClipboardList} tone="emergency" />
+          <MiniStat label="Avg consult" value={`${avgConsultMin}m`} icon={Timer} tone="primary" />
           <MiniStat
             label="Seen today"
             value={completedByMe.length}
@@ -243,7 +273,7 @@ function DoctorHome() {
                       </span>
                       <span
                         className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                          currentPatient.priority === "emergency"
+                          currentPatient.priority === "EMERGENCY"
                             ? "bg-emergency text-emergency-foreground"
                             : "bg-clinic-100 text-clinic-700"
                         }`}
@@ -251,17 +281,19 @@ function DoctorHome() {
                         {currentPatient.priority}
                       </span>
                     </div>
-                    <p className="mt-2 text-xl font-semibold">
-                      {currentPatient.patientName}
-                    </p>
+                    <p className="mt-2 text-xl font-semibold">{currentPatient.patient.fullName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {currentPatient.matricNumber
-                        ? `${currentPatient.matricNumber} · `
+                      {currentPatient.patient.matricNumber
+                        ? `${currentPatient.patient.matricNumber} · `
                         : ""}
                       {currentPatient.reason}
                     </p>
                     <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                      Called {formatDistanceToNowStrict(currentPatient.calledAt ?? currentPatient.createdAt)} ago · {currentPatient.room ?? room}
+                      Called{" "}
+                      {formatDistanceToNowStrict(
+                        currentPatient.calledAt ?? currentPatient.registeredAt,
+                      )}{" "}
+                      ago · {currentPatient.room ?? room}
                     </p>
                   </div>
                 ) : (
@@ -270,9 +302,7 @@ function DoctorHome() {
                   </p>
                 )}
               </div>
-              {currentPatient && (
-                <Stethoscope className="size-8 shrink-0 text-success" />
-              )}
+              {currentPatient && <Stethoscope className="size-8 shrink-0 text-success" />}
             </div>
 
             {currentPatient && (
@@ -294,8 +324,7 @@ function DoctorHome() {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      updateEntry(currentPatient.id, { notes: consultNotes });
-                      toast.success("Notes saved");
+                      toast.info("Notes are saved when the consultation is completed.");
                     }}
                   >
                     Save notes
@@ -317,20 +346,16 @@ function DoctorHome() {
                     <div className="mt-1 flex items-center gap-2">
                       <span
                         className={`font-mono text-xl font-bold ${
-                          nextInLine.priority === "emergency"
-                            ? "text-emergency"
-                            : "text-primary"
+                          nextInLine.priority === "EMERGENCY" ? "text-emergency" : "text-primary"
                         }`}
                       >
                         {nextInLine.token}
                       </span>
                       <span className="truncate text-sm font-semibold">
-                        {nextInLine.patientName}
+                        {nextInLine.patient.fullName}
                       </span>
                     </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {nextInLine.reason}
-                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{nextInLine.reason}</p>
                   </div>
                   <Button onClick={() => callPatient(nextInLine)}>
                     Call <ArrowRight className="ml-2 size-4" />
@@ -381,23 +406,18 @@ function DoctorHome() {
         </section>
       </main>
 
-      <AlertDialog
-        open={!!confirmComplete}
-        onOpenChange={(o) => !o && setConfirmComplete(null)}
-      >
+      <AlertDialog open={!!confirmComplete} onOpenChange={(o) => !o && setConfirmComplete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Complete this consultation?</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmComplete &&
-                `${confirmComplete.token} · ${confirmComplete.patientName} will be marked completed and removed from the active queue.`}
+                `${confirmComplete.token} · ${confirmComplete.patient.fullName} will be marked completed and removed from the active queue.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep open</AlertDialogCancel>
-            <AlertDialogAction onClick={completeConsult}>
-              Mark completed
-            </AlertDialogAction>
+            <AlertDialogAction onClick={completeConsult}>Mark completed</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

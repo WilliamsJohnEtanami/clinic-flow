@@ -51,10 +51,7 @@ export function KpiCards({ metrics }: { metrics: QueueMetrics }) {
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
       {cards.map((c) => (
-        <div
-          key={c.label}
-          className="rounded-2xl border border-border bg-card p-4 shadow-clinic"
-        >
+        <div key={c.label} className="rounded-2xl border border-border bg-card p-4 shadow-clinic">
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
               {c.label}

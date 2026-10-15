@@ -1,10 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { AlertTriangle, Clock, Stethoscope } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Logo } from "@/components/brand/logo";
-import { useQueue, useMetrics } from "@/lib/queue/hooks";
-import type { QueueEntry } from "@/lib/queue/types";
+import { api } from "@/lib/api/client";
+
+type DisplayEntry = Awaited<ReturnType<typeof api.queue.display>>["queue"][number];
 
 export const Route = createFileRoute("/display")({
   head: () => ({
@@ -21,8 +23,12 @@ export const Route = createFileRoute("/display")({
 });
 
 function DisplayScreen() {
-  const queue = useQueue();
-  const metrics = useMetrics();
+  const { data: queue = [] } = useQuery({
+    queryKey: ["queue", "public-display"],
+    queryFn: async () => (await api.queue.display()).queue,
+    refetchInterval: 5000,
+    staleTime: 0,
+  });
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -30,10 +36,13 @@ function DisplayScreen() {
     return () => clearInterval(t);
   }, []);
 
-  const inConsult = queue.filter((e) => e.status === "in_consultation");
-  const waiting = queue.filter((e) => e.status === "waiting");
+  const inConsult = queue.filter((e) => e.status === "IN_CONSULTATION");
+  const waiting = queue.filter((e) => e.status === "WAITING");
   const nextUp = waiting.slice(0, 6);
-  const emergency = waiting.find((e) => e.priority === "emergency");
+  const emergency = waiting.find((e) => e.priority === "EMERGENCY");
+  const emergencies = waiting.filter((e) => e.priority === "EMERGENCY").length;
+  const avgConsultMin = 12;
+  const estWaitMin = Math.round(waiting.length * avgConsultMin);
 
   return (
     <div className="min-h-screen bg-clinic-900 text-white">
@@ -70,9 +79,7 @@ function DisplayScreen() {
               <p className="text-[10px] font-bold uppercase tracking-widest text-emergency">
                 Emergency in queue
               </p>
-              <p className="text-lg font-semibold">
-                {emergency.token} — {emergency.patientName}
-              </p>
+              <p className="text-lg font-semibold">{emergency.token} — Please attend reception</p>
             </div>
           </div>
         )}
@@ -104,34 +111,32 @@ function DisplayScreen() {
             <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/5">
               <ul className="divide-y divide-white/10">
                 {nextUp.length === 0 && (
-                  <li className="px-6 py-10 text-center text-white/50">
-                    Queue is empty.
-                  </li>
+                  <li className="px-6 py-10 text-center text-white/50">Queue is empty.</li>
                 )}
                 {nextUp.map((e, idx) => (
                   <li
                     key={e.id}
                     className={`flex items-center justify-between px-6 py-4 ${
-                      e.priority === "emergency" ? "bg-emergency/10" : ""
+                      e.priority === "EMERGENCY" ? "bg-emergency/10" : ""
                     }`}
                   >
                     <div className="flex items-center gap-5">
                       <span
                         className={`font-mono text-3xl font-bold tabular-nums ${
-                          e.priority === "emergency" ? "text-emergency" : "text-white/90"
+                          e.priority === "EMERGENCY" ? "text-emergency" : "text-white/90"
                         }`}
                       >
                         {e.token}
                       </span>
                       <div>
-                        <p className="text-lg font-semibold">{e.patientName}</p>
+                        <p className="text-lg font-semibold">Next patient</p>
                         <p className="text-xs uppercase tracking-widest text-white/50">
-                          {e.priority === "emergency" ? "Emergency" : `Position ${idx + 1}`}
+                          {e.priority === "EMERGENCY" ? "Emergency" : `Position ${idx + 1}`}
                         </p>
                       </div>
                     </div>
                     <p className="font-mono text-sm text-white/60">
-                      ~{Math.round(idx * (metrics.avgConsultMin || 12))}m
+                      ~{Math.round(idx * avgConsultMin)}m
                     </p>
                   </li>
                 ))}
@@ -140,20 +145,12 @@ function DisplayScreen() {
           </section>
 
           <section className="grid gap-4">
-            <DisplayStat
-              icon={Stethoscope}
-              label="In consultation"
-              value={metrics.inConsultation}
-            />
-            <DisplayStat
-              icon={Clock}
-              label="Avg. consult"
-              value={`${metrics.avgConsultMin}m`}
-            />
+            <DisplayStat icon={Stethoscope} label="In consultation" value={inConsult.length} />
+            <DisplayStat icon={Clock} label="Avg. consult" value={`${avgConsultMin}m`} />
             <DisplayStat
               icon={AlertTriangle}
               label="Emergencies waiting"
-              value={metrics.emergencies}
+              value={emergencies}
               tone="emergency"
             />
             <div className="rounded-3xl border border-white/10 bg-white/5 px-6 py-6">
@@ -161,12 +158,10 @@ function DisplayScreen() {
                 Estimated wait
               </p>
               <p className="mt-3 font-mono text-5xl font-bold tabular-nums">
-                {metrics.estWaitMin}
+                {estWaitMin}
                 <span className="ml-2 text-lg text-white/50">min</span>
               </p>
-              <p className="mt-2 text-xs text-white/60">
-                For a routine patient joining now.
-              </p>
+              <p className="mt-2 text-xs text-white/60">For a routine patient joining now.</p>
             </div>
           </section>
         </div>
@@ -179,20 +174,18 @@ function DisplayScreen() {
   );
 }
 
-function NowServingCard({ entry }: { entry: QueueEntry }) {
+function NowServingCard({ entry }: { entry: DisplayEntry }) {
   return (
     <div
       className={`rounded-3xl border p-6 ${
-        entry.priority === "emergency"
+        entry.priority === "EMERGENCY"
           ? "border-emergency bg-emergency/10"
           : "border-white/15 bg-white/5"
       }`}
     >
       <div className="flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">
-          Token
-        </p>
-        {entry.priority === "emergency" && (
+        <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">Token</p>
+        {entry.priority === "EMERGENCY" && (
           <span className="inline-flex items-center gap-1 rounded-md bg-emergency px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emergency-foreground">
             <AlertTriangle className="size-3" />
             Urgent
@@ -201,15 +194,15 @@ function NowServingCard({ entry }: { entry: QueueEntry }) {
       </div>
       <p
         className={`mt-2 font-mono text-6xl font-bold tabular-nums ${
-          entry.priority === "emergency" ? "text-emergency" : "text-white"
+          entry.priority === "EMERGENCY" ? "text-emergency" : "text-white"
         }`}
       >
         {entry.token}
       </p>
       <div className="mt-5 border-t border-white/10 pt-4">
-        <p className="text-lg font-semibold">{entry.patientName}</p>
+        <p className="text-lg font-semibold">Now serving</p>
         <p className="mt-1 text-xs uppercase tracking-widest text-white/50">
-          {entry.doctorName ?? "Doctor"} · {entry.room ?? "Consultation room"}
+          {entry.doctor?.fullName ?? "Doctor"} · {entry.room ?? "Consultation room"}
         </p>
       </div>
     </div>
@@ -230,20 +223,14 @@ function DisplayStat({
   return (
     <div
       className={`flex items-center justify-between rounded-3xl border px-6 py-5 ${
-        tone === "emergency"
-          ? "border-emergency/50 bg-emergency/10"
-          : "border-white/10 bg-white/5"
+        tone === "emergency" ? "border-emergency/50 bg-emergency/10" : "border-white/10 bg-white/5"
       }`}
     >
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">
-          {label}
-        </p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-white/50">{label}</p>
         <p className="mt-2 font-mono text-3xl font-bold tabular-nums">{value}</p>
       </div>
-      <Icon
-        className={`size-6 ${tone === "emergency" ? "text-emergency" : "text-white/60"}`}
-      />
+      <Icon className={`size-6 ${tone === "emergency" ? "text-emergency" : "text-white/60"}`} />
     </div>
   );
 }

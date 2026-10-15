@@ -10,17 +10,9 @@ import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth/context";
-import { getSeedCredentials } from "@/lib/auth/store";
-import { ROLE_HOME, ROLE_LABEL, type Role } from "@/lib/auth/types";
+import { ROLE_HOME } from "@/lib/auth/types";
 
 const authSearchSchema = z.object({
   mode: z.enum(["signin", "signup"]).optional(),
@@ -73,8 +65,8 @@ function AuthPage() {
 
         <div className="relative z-10 space-y-8">
           <blockquote className="text-2xl font-medium leading-snug text-background">
-            "VitaFlow cut our average waiting time in half. Emergencies are handled
-            without ever losing sight of the students already in a consultation."
+            "VitaFlow cut our average waiting time in half. Emergencies are handled without ever
+            losing sight of the students already in a consultation."
           </blockquote>
           <div>
             <p className="font-semibold text-background">Dr. Ada Okonkwo</p>
@@ -113,8 +105,6 @@ function AuthPage() {
           </Tabs>
 
           {mode === "signin" ? <SignInForm /> : <SignUpForm />}
-
-          {mode === "signin" && <DemoCredentials />}
 
           <p className="text-center text-xs text-muted-foreground">
             By continuing you agree to VitaFlow's clinical usage policy.
@@ -231,18 +221,14 @@ const signUpSchema = z
   .object({
     fullName: z.string().trim().min(2, "Enter your full name").max(80),
     email: z.string().trim().email("Enter a valid email").max(120),
-    role: z.enum(["patient", "receptionist", "doctor", "admin"]),
-    matricNumber: z.string().trim().max(30).optional(),
+    role: z.literal("patient"),
+    matricNumber: z.string().trim().min(1, "Matric number is required").max(30),
     password: z.string().min(6, "At least 6 characters"),
     confirm: z.string(),
   })
   .refine((d) => d.password === d.confirm, {
     path: ["confirm"],
     message: "Passwords don't match",
-  })
-  .refine((d) => d.role !== "patient" || (d.matricNumber && d.matricNumber.length > 0), {
-    path: ["matricNumber"],
-    message: "Matric number is required for patients",
   });
 type SignUpValues = z.infer<typeof signUpSchema>;
 
@@ -260,8 +246,6 @@ function SignUpForm() {
       confirm: "",
     },
   });
-
-  const role = form.watch("role");
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {
@@ -284,7 +268,7 @@ function SignUpForm() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Register as a patient, or as clinic staff.
+          Create a patient account to access your clinic visits.
         </p>
       </div>
 
@@ -298,37 +282,13 @@ function SignUpForm() {
 
       <div className="space-y-1.5">
         <Label htmlFor="signup-email">Email</Label>
-        <Input
-          id="signup-email"
-          type="email"
-          autoComplete="email"
-          {...form.register("email")}
-        />
+        <Input id="signup-email" type="email" autoComplete="email" {...form.register("email")} />
         {form.formState.errors.email && (
           <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
         )}
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="signup-role">Role</Label>
-        <Select
-          value={role}
-          onValueChange={(v) => form.setValue("role", v as Role, { shouldValidate: true })}
-        >
-          <SelectTrigger id="signup-role">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {(["patient", "receptionist", "doctor", "admin"] as Role[]).map((r) => (
-              <SelectItem key={r} value={r}>
-                {ROLE_LABEL[r]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {role === "patient" && (
+      {
         <div className="space-y-1.5">
           <Label htmlFor="signup-matric">Matric / Student ID</Label>
           <Input
@@ -337,12 +297,10 @@ function SignUpForm() {
             {...form.register("matricNumber")}
           />
           {form.formState.errors.matricNumber && (
-            <p className="text-xs text-destructive">
-              {form.formState.errors.matricNumber.message}
-            </p>
+            <p className="text-xs text-destructive">{form.formState.errors.matricNumber.message}</p>
           )}
         </div>
-      )}
+      }
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -381,58 +339,5 @@ function SignUpForm() {
         )}
       </Button>
     </form>
-  );
-}
-
-function DemoCredentials() {
-  const [copied, setCopied] = useState<Role | null>(null);
-  const roles: Role[] = ["admin", "doctor", "receptionist", "patient"];
-
-  const use = (role: Role) => {
-    const creds = getSeedCredentials(role);
-    if (!creds) return;
-    // Fill the sign-in form via native events on the inputs (simple + reliable
-    // without hoisting form state to the parent).
-    const emailEl = document.getElementById("signin-email") as HTMLInputElement | null;
-    const pwEl = document.getElementById("signin-password") as HTMLInputElement | null;
-    if (emailEl && pwEl) {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")
-        ?.set;
-      setter?.call(emailEl, creds.email);
-      setter?.call(pwEl, creds.password);
-      emailEl.dispatchEvent(new Event("input", { bubbles: true }));
-      pwEl.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    setCopied(role);
-    toast.success(`Filled ${ROLE_LABEL[role]} credentials — click Sign in`);
-    setTimeout(() => setCopied(null), 1500);
-  };
-
-  return (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-        Demo credentials
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Tap a role to auto-fill the form.
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {roles.map((r) => (
-          <button
-            key={r}
-            type="button"
-            onClick={() => use(r)}
-            className={`rounded-lg border border-border bg-background px-3 py-2 text-left text-xs transition hover:border-primary hover:bg-clinic-100/40 ${
-              copied === r ? "border-primary" : ""
-            }`}
-          >
-            <span className="block font-semibold">{ROLE_LABEL[r]}</span>
-            <span className="block truncate text-muted-foreground">
-              {getSeedCredentials(r)?.email}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }

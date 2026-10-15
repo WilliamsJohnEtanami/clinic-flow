@@ -33,8 +33,8 @@ export interface RegisterPayload {
   email: string;
   password: string;
   fullName: string;
-  role: Role;
-  matricNumber?: string;
+  role: "patient";
+  matricNumber: string;
 }
 
 export const ROLE_LABEL: Record<Role, string> = {

@@ -122,8 +122,7 @@ export async function signIn(creds: Credentials): Promise<Session> {
   const users = readUsers();
   const match = users.find((u) => u.email.toLowerCase() === creds.email.toLowerCase());
   if (!match) throw new Error("No account found with that email.");
-  if (match.passwordHash !== hashPassword(creds.password))
-    throw new Error("Incorrect password.");
+  if (match.passwordHash !== hashPassword(creds.password)) throw new Error("Incorrect password.");
 
   const session: Session = {
     user: stripPassword(match),

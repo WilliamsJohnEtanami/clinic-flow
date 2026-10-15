@@ -3,12 +3,7 @@
  * When Lovable Cloud is enabled these map 1:1 to a Supabase `appointments` table.
  */
 
-export type AppointmentStatus =
-  | "scheduled"
-  | "checked_in"
-  | "completed"
-  | "cancelled"
-  | "no_show";
+export type AppointmentStatus = "scheduled" | "checked_in" | "completed" | "cancelled" | "no_show";
 
 export interface Appointment {
   id: string;

@@ -32,7 +32,9 @@ export function QueueTable({
   emptyLabel = "No patients in queue.",
 }: QueueTableProps) {
   const visible = hideResolved
-    ? entries.filter((e) => e.status === "waiting" || e.status === "in_consultation")
+    ? entries.filter(
+        (e) => e.status === "WAITING" || e.status === "CALLED" || e.status === "IN_CONSULTATION",
+      )
     : entries;
 
   if (visible.length === 0) {
@@ -81,10 +83,10 @@ function QueueRow({
   onCall?: (e: QueueEntry) => void;
   onComplete?: (e: QueueEntry) => void;
 }) {
-  const isEmergency = entry.priority === "emergency";
-  const isInConsult = entry.status === "in_consultation";
-  const isDone = entry.status === "completed" || entry.status === "cancelled";
-  const rowTone = isEmergency && entry.status === "waiting" ? "bg-emergency-soft/40" : "";
+  const isEmergency = entry.priority === "EMERGENCY";
+  const isInConsult = entry.status === "IN_CONSULTATION";
+  const isDone = ["COMPLETED", "CANCELLED", "SKIPPED", "NO_SHOW"].includes(entry.status);
+  const rowTone = isEmergency && entry.status === "WAITING" ? "bg-emergency-soft/40" : "";
 
   return (
     <li
@@ -106,9 +108,9 @@ function QueueRow({
 
       {/* Patient */}
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold">{entry.patientName}</p>
+        <p className="truncate text-sm font-semibold">{entry.patient.fullName}</p>
         <p className="truncate text-xs text-muted-foreground">
-          {entry.matricNumber ? `${entry.matricNumber} · ` : ""}
+          {entry.patient.matricNumber ? `${entry.patient.matricNumber} · ` : ""}
           {entry.reason}
         </p>
       </div>
@@ -121,8 +123,8 @@ function QueueRow({
       {/* Waited */}
       <div className="font-mono text-xs text-muted-foreground">
         {isDone ? "—" : formatDistanceToNowStrict(entry.createdAt) + " ago"}
-        {isInConsult && entry.doctorName && (
-          <span className="ml-2 text-foreground">· {entry.doctorName}</span>
+        {isInConsult && entry.doctor && (
+          <span className="ml-2 text-foreground">· {entry.doctor.fullName}</span>
         )}
       </div>
 
@@ -135,17 +137,17 @@ function QueueRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            {onCall && entry.status === "waiting" && (
+            {onCall && entry.status === "WAITING" && (
               <DropdownMenuItem onClick={() => onCall(entry)}>
                 <ArrowUpRight className="mr-2 size-4" /> Call to consultation
               </DropdownMenuItem>
             )}
-            {onComplete && entry.status === "in_consultation" && (
+            {onComplete && entry.status === "IN_CONSULTATION" && (
               <DropdownMenuItem onClick={() => onComplete(entry)}>
                 <ArrowUpRight className="mr-2 size-4" /> Mark completed
               </DropdownMenuItem>
             )}
-            {onTogglePriority && entry.status === "waiting" && (
+            {onTogglePriority && entry.status === "WAITING" && (
               <DropdownMenuItem onClick={() => onTogglePriority(entry)}>
                 <AlertTriangle className="mr-2 size-4 text-emergency" />
                 {isEmergency ? "Downgrade to routine" : "Mark emergency"}
@@ -171,16 +173,18 @@ function QueueRow({
 
 function StatusPill({ entry }: { entry: QueueEntry }) {
   const map: Record<QueueEntry["status"], string> = {
-    waiting:
-      entry.priority === "emergency"
+    WAITING:
+      entry.priority === "EMERGENCY"
         ? "bg-emergency text-emergency-foreground"
         : "bg-muted text-muted-foreground",
-    in_consultation: "bg-success-soft text-success",
-    completed: "bg-clinic-100 text-clinic-700",
-    cancelled: "bg-destructive/10 text-destructive",
+    IN_CONSULTATION: "bg-success-soft text-success",
+    COMPLETED: "bg-clinic-100 text-clinic-700",
+    CANCELLED: "bg-destructive/10 text-destructive",
+    SKIPPED: "bg-muted text-muted-foreground",
+    NO_SHOW: "bg-destructive/10 text-destructive",
   };
   const label =
-    entry.status === "waiting" && entry.priority === "emergency"
+    entry.status === "WAITING" && entry.priority === "EMERGENCY"
       ? "Urgent"
       : STATUS_LABEL[entry.status];
   return (

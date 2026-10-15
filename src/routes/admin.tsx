@@ -18,6 +18,7 @@ import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -26,23 +27,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { QueueTable } from "@/components/queue/queue-table";
+import { AnalyticsPanel } from "@/components/analytics/analytics-panel";
 import { useAuth } from "@/lib/auth/context";
 import { ROLE_LABEL, type Role } from "@/lib/auth/types";
-import {
-  countByRole,
-  createStaff,
-  deleteUser,
-  listUsers,
-} from "@/lib/auth/admin";
-import { useQueue, useMetrics } from "@/lib/queue/hooks";
-import { resetQueue } from "@/lib/queue/store";
+import { useCreateStaff, useDeleteStaff, useStaffList } from "@/lib/auth/admin-api-hooks";
+import type { User } from "@/lib/auth/types";
+import { computeApiMetrics } from "@/lib/queue/api-metrics";
+import { useQueueList } from "@/lib/queue/api-hooks";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
-    meta: [
-      { title: "Admin · VitaFlow" },
-      { name: "robots", content: "noindex" },
-    ],
+    meta: [{ title: "Admin · VitaFlow" }, { name: "robots", content: "noindex" }],
   }),
   component: AdminHome,
 });
@@ -66,20 +61,32 @@ function AdminHome() {
     );
   }
 
-  return <AdminConsole userName={user.fullName} onSignOut={async () => {
-    await signOut();
-    navigate({ to: "/" });
-  }} />;
+  return (
+    <AdminConsole
+      userName={user.fullName}
+      onSignOut={async () => {
+        await signOut();
+        navigate({ to: "/" });
+      }}
+    />
+  );
 }
 
 function AdminConsole({ userName, onSignOut }: { userName: string; onSignOut: () => void }) {
-  const queue = useQueue();
-  const metrics = useMetrics();
-  const [staffTick, setStaffTick] = useState(0);
-  const users = useMemo(() => listUsers(), [staffTick]);
-  const roleCounts = useMemo(() => countByRole(), [staffTick]);
+  const { data: queue = [], isLoading: queueLoading, error: queueError, refetch } = useQueueList();
+  const metrics = useMemo(() => computeApiMetrics(queue), [queue]);
+  const { data: users = [], isLoading: staffLoading, error: staffError } = useStaffList();
+  const deleteStaff = useDeleteStaff();
+  const roleCounts = useMemo(
+    () => ({
+      doctor: users.filter((u) => u.role === "doctor").length,
+      receptionist: users.filter((u) => u.role === "receptionist").length,
+      patient: users.filter((u) => u.role === "patient").length,
+    }),
+    [users],
+  );
 
-  const emergencyToday = queue.filter((e) => e.priority === "emergency").length;
+  const emergencyToday = metrics.emergencies;
   const throughput = metrics.completedToday;
 
   return (
@@ -124,88 +131,109 @@ function AdminConsole({ userName, onSignOut }: { userName: string; onSignOut: ()
               Staff, throughput and live queue — everything at a glance.
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              resetQueue();
-              toast.success("Demo queue reset");
-            }}
-          >
-            <RefreshCw className="mr-2 size-4" /> Reset demo data
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
+            <RefreshCw className="mr-2 size-4" /> Refresh data
           </Button>
         </div>
 
-        {/* Stat grid */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <StatCard
-            label="Registered today"
-            value={metrics.totalToday}
-            icon={Users}
-            tone="primary"
-          />
-          <StatCard
-            label="Completed"
-            value={throughput}
-            icon={Activity}
-            tone="success"
-          />
-          <StatCard
-            label="Emergencies"
-            value={emergencyToday}
-            icon={AlertTriangle}
-            tone="emergency"
-          />
-          <StatCard
-            label="Avg. consult"
-            value={`${metrics.avgConsultMin}m`}
-            icon={BarChart3}
-            tone="muted"
-          />
-        </div>
+        <Tabs defaultValue="operations" className="w-full">
+          <TabsList className="mb-6">
+            <TabsTrigger value="operations">Operations</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics & Reports</TabsTrigger>
+          </TabsList>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-[1.1fr_1fr]">
-          {/* Live queue */}
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-semibold">Live queue</h2>
-                <p className="text-xs text-muted-foreground">
-                  Read-only overview — actions happen at reception and consultation.
-                </p>
-              </div>
-              <Link
-                to="/reception"
-                className="text-xs font-semibold text-primary hover:underline"
-              >
-                Open reception →
-              </Link>
+          <TabsContent value="operations" className="space-y-6">
+            {/* Stat grid */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <StatCard
+                label="Registered today"
+                value={metrics.totalToday}
+                icon={Users}
+                tone="primary"
+              />
+              <StatCard label="Completed" value={throughput} icon={Activity} tone="success" />
+              <StatCard
+                label="Emergencies"
+                value={emergencyToday}
+                icon={AlertTriangle}
+                tone="emergency"
+              />
+              <StatCard
+                label="Avg. consult"
+                value={`${metrics.avgConsultMin}m`}
+                icon={BarChart3}
+                tone="muted"
+              />
             </div>
-            <QueueTable entries={queue} hideResolved emptyLabel="Queue is empty." />
-          </section>
 
-          {/* Staff */}
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-semibold">Staff & accounts</h2>
-                <p className="text-xs text-muted-foreground">
-                  {roleCounts.doctor} doctors · {roleCounts.receptionist} receptionists ·{" "}
-                  {roleCounts.patient} patients
-                </p>
-              </div>
+            <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
+              {/* Live queue */}
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-semibold">Live queue</h2>
+                    <p className="text-xs text-muted-foreground">
+                      Read-only overview — actions happen at reception and consultation.
+                    </p>
+                  </div>
+                  <Link
+                    to="/reception"
+                    className="text-xs font-semibold text-primary hover:underline"
+                  >
+                    Open reception →
+                  </Link>
+                </div>
+                {queueError ? (
+                  <p role="alert" className="mb-3 text-sm text-destructive">
+                    Queue could not be loaded: {queueError.message}
+                  </p>
+                ) : queueLoading ? (
+                  <p className="mb-3 text-sm text-muted-foreground">Loading queue…</p>
+                ) : null}
+                <QueueTable entries={queue} hideResolved emptyLabel="Queue is empty." />
+              </section>
+
+              {/* Staff */}
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <div>
+                    <h2 className="text-base font-semibold">Staff & accounts</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {roleCounts.doctor} doctors · {roleCounts.receptionist} receptionists ·{" "}
+                      {roleCounts.patient} patients
+                    </p>
+                  </div>
+                </div>
+                {staffError && (
+                  <p role="alert" className="mb-3 text-sm text-destructive">
+                    Staff accounts could not be loaded: {staffError.message}
+                  </p>
+                )}
+                {staffLoading && (
+                  <p className="mb-3 text-sm text-muted-foreground">Loading staff…</p>
+                )}
+                <StaffCreateForm />
+                <StaffList
+                  users={users}
+                  onDelete={async (id) => {
+                    try {
+                      await deleteStaff.mutateAsync(id);
+                      toast.success("Account deactivated");
+                    } catch (err) {
+                      toast.error(
+                        err instanceof Error ? err.message : "Could not deactivate account",
+                      );
+                    }
+                  }}
+                />
+              </section>
             </div>
-            <StaffCreateForm onCreated={() => setStaffTick((t) => t + 1)} />
-            <StaffList
-              users={users}
-              onDelete={(id) => {
-                deleteUser(id);
-                setStaffTick((t) => t + 1);
-                toast.success("Account removed");
-              }}
-            />
-          </section>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="analytics">
+            <AnalyticsPanel initialPeriod="today" />
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
@@ -243,19 +271,18 @@ function StatCard({
   );
 }
 
-function StaffCreateForm({ onCreated }: { onCreated: () => void }) {
+function StaffCreateForm() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"doctor" | "receptionist" | "admin">("doctor");
   const [specialty, setSpecialty] = useState("");
-  const [busy, setBusy] = useState(false);
+  const createStaff = useCreateStaff();
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setBusy(true);
     try {
-      createStaff({
+      await createStaff.mutateAsync({
         fullName,
         email,
         password,
@@ -267,11 +294,8 @@ function StaffCreateForm({ onCreated }: { onCreated: () => void }) {
       setEmail("");
       setPassword("");
       setSpecialty("");
-      onCreated();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add account.");
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -329,7 +353,7 @@ function StaffCreateForm({ onCreated }: { onCreated: () => void }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            minLength={6}
+            minLength={8}
             placeholder="min 6 chars"
           />
         </div>
@@ -346,7 +370,7 @@ function StaffCreateForm({ onCreated }: { onCreated: () => void }) {
         )}
       </div>
       <div className="mt-4 flex justify-end">
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={createStaff.isPending}>
           <UserPlus className="mr-2 size-4" /> Create account
         </Button>
       </div>
@@ -354,13 +378,7 @@ function StaffCreateForm({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-function StaffList({
-  users,
-  onDelete,
-}: {
-  users: ReturnType<typeof listUsers>;
-  onDelete: (id: string) => void;
-}) {
+function StaffList({ users, onDelete }: { users: User[]; onDelete: (id: string) => void }) {
   const [filter, setFilter] = useState<Role | "all">("all");
   const rows = users.filter((u) => filter === "all" || u.role === filter);
 

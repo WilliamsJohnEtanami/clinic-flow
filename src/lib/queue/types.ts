@@ -1,46 +1,63 @@
 /**
- * Queue domain types. When Lovable Cloud is enabled these map 1:1 to
- * Supabase tables (queue_entries, patients).
+ * Queue domain types matching Prisma QueueEntry model with nested relations.
  */
 
-export type Priority = "routine" | "emergency";
+export type Priority = "ROUTINE" | "EMERGENCY";
 
 export type QueueStatus =
-  | "waiting"
-  | "in_consultation"
-  | "completed"
-  | "cancelled";
+  "WAITING" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "SKIPPED" | "NO_SHOW";
+
+export interface Patient {
+  id: string;
+  userId: string;
+  fullName: string;
+  matricNumber: string;
+  phone?: string;
+  email?: string;
+}
+
+export interface User {
+  id: string;
+  fullName: string;
+  email: string;
+  specialty?: string;
+}
 
 export interface QueueEntry {
   id: string;
-  /** Human-readable token, e.g. A-014 or E-003 */
   token: string;
-  patientName: string;
-  matricNumber?: string;
-  phone?: string;
-  reason: string;
+  patientId: string;
+  patient: Patient;
+  appointmentId?: string;
+  queueType: "WALK_IN" | "FROM_APPOINTMENT";
   priority: Priority;
   status: QueueStatus;
-  /** Doctor ID once called; undefined while waiting */
-  doctorId?: string;
-  doctorName?: string;
-  room?: string;
-  registeredBy: string; // user id of receptionist / patient
-  createdAt: string;
-  calledAt?: string;
-  completedAt?: string;
-  /** Optional notes captured at registration (vitals, complaint detail) */
+  reason: string;
   notes?: string;
+  doctorId?: string;
+  doctor?: User;
+  room?: string;
+  registeredById: string;
+  registeredAt: string;
+  calledAt?: string;
+  consultationStartAt?: string;
+  consultationEndAt?: string;
+  estimatedWaitMin?: number;
+  actualWaitMin?: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export const PRIORITY_LABEL: Record<Priority, string> = {
-  routine: "Routine",
-  emergency: "Emergency",
+  ROUTINE: "Routine",
+  EMERGENCY: "Emergency",
 };
 
 export const STATUS_LABEL: Record<QueueStatus, string> = {
-  waiting: "Waiting",
-  in_consultation: "In consultation",
-  completed: "Completed",
-  cancelled: "Cancelled",
+  WAITING: "Waiting",
+  IN_CONSULTATION: "In Consultation",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  SKIPPED: "Skipped",
+  NO_SHOW: "No Show",
 };

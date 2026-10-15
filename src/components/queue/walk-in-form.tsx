@@ -1,6 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AlertTriangle, Loader2, UserPlus } from "lucide-react";
-import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -10,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { createEntry } from "@/lib/queue/store";
-import type { QueueEntry } from "@/lib/queue/types";
+import { useCreateWalkIn } from "@/lib/queue/api-hooks";
 
 const schema = z.object({
   patientName: z.string().min(2, "Enter the patient's full name."),
@@ -24,14 +22,8 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-export function WalkInForm({
-  registeredBy,
-  onCreated,
-}: {
-  registeredBy: string;
-  onCreated?: (entry: QueueEntry) => void;
-}) {
-  const [submitting, setSubmitting] = useState(false);
+export function WalkInForm() {
+  const createWalkIn = useCreateWalkIn();
   const {
     register,
     handleSubmit,
@@ -53,29 +45,22 @@ export function WalkInForm({
   const emergency = watch("emergency");
 
   const onSubmit = handleSubmit(async (values) => {
-    setSubmitting(true);
     try {
-      const entry = createEntry({
-        patientName: values.patientName,
-        matricNumber: values.matricNumber,
-        phone: values.phone,
-        reason: values.reason,
-        notes: values.notes,
-        priority: values.emergency ? "emergency" : "routine",
-        registeredBy,
+      const entry = await createWalkIn.mutateAsync({
+        patientName: values.patientName.trim(),
+        matricNumber: values.matricNumber || undefined,
+        phone: values.phone || undefined,
+        reason: values.reason.trim(),
+        notes: values.notes || undefined,
+        priority: values.emergency ? "EMERGENCY" : "ROUTINE",
       });
       toast.success(`Token ${entry.token} issued`, {
-        description: `${entry.patientName} added to the ${
-          values.emergency ? "emergency" : "routine"
-        } queue.`,
+        description: `${values.patientName} added to the ${values.emergency ? "emergency" : "routine"} queue.`,
       });
       reset();
-      onCreated?.(entry);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed to register patient.";
       toast.error(message);
-    } finally {
-      setSubmitting(false);
     }
   });
 
@@ -89,9 +74,7 @@ export function WalkInForm({
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Register walk-in</h2>
-          <p className="text-xs text-muted-foreground">
-            A token is generated automatically.
-          </p>
+          <p className="text-xs text-muted-foreground">A token is generated automatically.</p>
         </div>
         <label
           htmlFor="emergency-toggle"
@@ -114,7 +97,11 @@ export function WalkInForm({
 
       <div className="grid gap-4 md:grid-cols-2">
         <Field label="Full name" error={errors.patientName?.message}>
-          <Input placeholder="e.g. Marcus Holloway" autoComplete="off" {...register("patientName")} />
+          <Input
+            placeholder="e.g. Marcus Holloway"
+            autoComplete="off"
+            {...register("patientName")}
+          />
         </Field>
         <Field label="Matric / staff ID" hint="Optional">
           <Input placeholder="CSC/2021/044" autoComplete="off" {...register("matricNumber")} />
@@ -142,8 +129,8 @@ export function WalkInForm({
             ? "Emergency inserts before all routine patients (non-preemptive)."
             : "Patient will be added to the end of the routine queue."}
         </p>
-        <Button type="submit" disabled={submitting}>
-          {submitting ? (
+        <Button type="submit" disabled={createWalkIn.isPending}>
+          {createWalkIn.isPending ? (
             <Loader2 className="mr-2 size-4 animate-spin" />
           ) : (
             <UserPlus className="mr-2 size-4" />
@@ -172,9 +159,7 @@ function Field({
         <Label className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
           {label}
         </Label>
-        {hint && !error && (
-          <span className="text-[10px] text-muted-foreground">{hint}</span>
-        )}
+        {hint && !error && <span className="text-[10px] text-muted-foreground">{hint}</span>}
       </div>
       {children}
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}

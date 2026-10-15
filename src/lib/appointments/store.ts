@@ -18,6 +18,16 @@ function isBrowser(): boolean {
 let _rawCache: string | null = null;
 let _parsedCache: Appointment[] = [];
 
+// Snapshot caching for useSyncExternalStore getSnapshot stability
+let _listAppointmentsSnapshotVersion: string | null = null;
+let _listAppointmentsCache: Appointment[] = [];
+let _listAppointmentsForCache: Map<string, Appointment[]> = new Map();
+
+function snapshotKey(): string {
+  if (!isBrowser()) return "server";
+  return localStorage.getItem(APPT_KEY) ?? "empty";
+}
+
 function readAll(): Appointment[] {
   if (!isBrowser()) return [];
   try {
@@ -40,6 +50,10 @@ function writeAll(entries: Appointment[]): void {
   localStorage.setItem(APPT_KEY, raw);
   _rawCache = raw;
   _parsedCache = entries;
+  // Invalidate snapshot caches
+  _listAppointmentsSnapshotVersion = null;
+  _listAppointmentsCache = [];
+  _listAppointmentsForCache.clear();
   emit();
 }
 
@@ -152,9 +166,16 @@ export function subscribe(l: Listener): () => void {
 
 // ---- ordering ----------------------------------------------------------
 
-/** Sort by scheduledFor asc. */
+/** Sort by scheduledFor asc. Cached for useSyncExternalStore stability. */
 export function listAppointments(): Appointment[] {
-  return [...readAll()].sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
+  const key = snapshotKey();
+  if (key === _listAppointmentsSnapshotVersion && _listAppointmentsCache.length >= 0 && _listAppointmentsSnapshotVersion !== null) {
+    return _listAppointmentsCache;
+  }
+  const result = [...readAll()].sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
+  _listAppointmentsSnapshotVersion = key;
+  _listAppointmentsCache = result;
+  return result;
 }
 
 export function listAppointmentsFor(opts: {
@@ -163,13 +184,24 @@ export function listAppointmentsFor(opts: {
   day?: string; // YYYY-MM-DD
   status?: AppointmentStatus;
 }): Appointment[] {
-  return listAppointments().filter((a) => {
+  // Generate a cache key based on the options
+  const cacheKey = JSON.stringify(opts);
+  const cached = _listAppointmentsForCache.get(cacheKey);
+  
+  if (cached !== undefined && _listAppointmentsSnapshotVersion === snapshotKey()) {
+    return cached;
+  }
+  
+  const result = listAppointments().filter((a) => {
     if (opts.doctorId && a.doctorId !== opts.doctorId) return false;
     if (opts.patientId && a.patientId !== opts.patientId) return false;
     if (opts.status && a.status !== opts.status) return false;
     if (opts.day && a.scheduledFor.slice(0, 10) !== opts.day) return false;
     return true;
   });
+  
+  _listAppointmentsForCache.set(cacheKey, result);
+  return result;
 }
 
 // ---- mutations ---------------------------------------------------------
@@ -211,10 +243,7 @@ export function createAppointment(input: CreateApptInput): Appointment {
   return appt;
 }
 
-export function updateAppointment(
-  id: string,
-  patch: Partial<Appointment>,
-): Appointment | null {
+export function updateAppointment(id: string, patch: Partial<Appointment>): Appointment | null {
   const all = readAll();
   const idx = all.findIndex((a) => a.id === id);
   if (idx === -1) return null;
