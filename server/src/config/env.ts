@@ -17,12 +17,23 @@ export const env = {
     .filter(Boolean),
 
   databaseUrl: required("DATABASE_URL"),
+  directDatabaseUrl: required("DIRECT_URL"),
 
   jwt: {
     accessSecret: required("JWT_ACCESS_SECRET"),
     refreshSecret: required("JWT_REFRESH_SECRET"),
     accessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
     refreshTtl: process.env.JWT_REFRESH_TTL ?? "7d",
+  },
+
+  mail: {
+    host: process.env.SMTP_HOST,
+    port: Number.parseInt(process.env.SMTP_PORT ?? "587", 10),
+    secure: process.env.SMTP_SECURE === "true",
+    user: process.env.SMTP_USER,
+    password: process.env.SMTP_PASSWORD,
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+    frontendUrl: process.env.FRONTEND_URL,
   },
 
   isProduction: process.env.NODE_ENV === "production",

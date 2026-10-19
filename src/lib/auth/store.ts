@@ -38,10 +38,10 @@ const SEED_USERS: Array<Omit<StoredUser, "id" | "createdAt">> = [
     passwordHash: hashPassword("reception123"),
   },
   {
-    email: "patient@vitaflow.edu",
-    fullName: "Marcus Holloway",
+    email: "patient@example.test",
+    fullName: "Demo Patient",
     role: "patient",
-    matricNumber: "CSC/2021/044",
+    matricNumber: "DEMO/0001",
     passwordHash: hashPassword("patient123"),
   },
 ];

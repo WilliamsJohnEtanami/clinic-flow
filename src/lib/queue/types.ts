@@ -5,11 +5,11 @@
 export type Priority = "ROUTINE" | "EMERGENCY";
 
 export type QueueStatus =
-  "WAITING" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "SKIPPED" | "NO_SHOW";
+  "WAITING" | "CALLED" | "IN_CONSULTATION" | "COMPLETED" | "CANCELLED" | "SKIPPED" | "NO_SHOW";
 
 export interface Patient {
   id: string;
-  userId: string;
+  userId?: string;
   fullName: string;
   matricNumber: string;
   phone?: string;
@@ -29,9 +29,12 @@ export interface QueueEntry {
   patientId: string;
   patient: Patient;
   appointmentId?: string;
-  queueType: "WALK_IN" | "FROM_APPOINTMENT";
+  queueType: "WALK_IN" | "APPOINTMENT" | "FROM_APPOINTMENT";
   priority: Priority;
   status: QueueStatus;
+  patientName?: string;
+  matricNumber?: string;
+  phone?: string;
   reason: string;
   notes?: string;
   doctorId?: string;
@@ -42,8 +45,10 @@ export interface QueueEntry {
   calledAt?: string;
   consultationStartAt?: string;
   consultationEndAt?: string;
+  completedAt?: string;
   estimatedWaitMin?: number;
   actualWaitMin?: number;
+  registeredBy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,6 +60,7 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
 
 export const STATUS_LABEL: Record<QueueStatus, string> = {
   WAITING: "Waiting",
+  CALLED: "Called",
   IN_CONSULTATION: "In Consultation",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",

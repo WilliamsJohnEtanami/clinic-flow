@@ -21,7 +21,7 @@ let _parsedCache: Appointment[] = [];
 // Snapshot caching for useSyncExternalStore getSnapshot stability
 let _listAppointmentsSnapshotVersion: string | null = null;
 let _listAppointmentsCache: Appointment[] = [];
-let _listAppointmentsForCache: Map<string, Appointment[]> = new Map();
+const _listAppointmentsForCache: Map<string, Appointment[]> = new Map();
 
 function snapshotKey(): string {
   if (!isBrowser()) return "server";
@@ -169,7 +169,11 @@ export function subscribe(l: Listener): () => void {
 /** Sort by scheduledFor asc. Cached for useSyncExternalStore stability. */
 export function listAppointments(): Appointment[] {
   const key = snapshotKey();
-  if (key === _listAppointmentsSnapshotVersion && _listAppointmentsCache.length >= 0 && _listAppointmentsSnapshotVersion !== null) {
+  if (
+    key === _listAppointmentsSnapshotVersion &&
+    _listAppointmentsCache.length >= 0 &&
+    _listAppointmentsSnapshotVersion !== null
+  ) {
     return _listAppointmentsCache;
   }
   const result = [...readAll()].sort((a, b) => a.scheduledFor.localeCompare(b.scheduledFor));
@@ -187,11 +191,11 @@ export function listAppointmentsFor(opts: {
   // Generate a cache key based on the options
   const cacheKey = JSON.stringify(opts);
   const cached = _listAppointmentsForCache.get(cacheKey);
-  
+
   if (cached !== undefined && _listAppointmentsSnapshotVersion === snapshotKey()) {
     return cached;
   }
-  
+
   const result = listAppointments().filter((a) => {
     if (opts.doctorId && a.doctorId !== opts.doctorId) return false;
     if (opts.patientId && a.patientId !== opts.patientId) return false;
@@ -199,7 +203,7 @@ export function listAppointmentsFor(opts: {
     if (opts.day && a.scheduledFor.slice(0, 10) !== opts.day) return false;
     return true;
   });
-  
+
   _listAppointmentsForCache.set(cacheKey, result);
   return result;
 }
@@ -277,7 +281,7 @@ export function checkInAppointment(
     matricNumber: appt.matricNumber,
     phone: appt.phone,
     reason: appt.reason,
-    priority: "routine",
+    priority: "ROUTINE",
     notes: appt.notes,
     registeredBy,
   });

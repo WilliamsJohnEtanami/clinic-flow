@@ -1,5 +1,5 @@
 import { prisma } from "@/config/prisma";
-import { NotificationType } from "@prisma/client";
+import { NotificationType, Prisma } from "@prisma/client";
 import { notifyUser } from "@/realtime/socket";
 import { SOCKET_EVENTS } from "@/realtime/events";
 import { NotFoundError } from "@/utils/errors";
@@ -14,23 +14,25 @@ export class NotificationService {
     title: string,
     message: string,
     data?: Record<string, unknown>,
+    transaction?: Prisma.TransactionClient,
   ) {
-    const notification = await prisma.notification.create({
+    const client = transaction ?? prisma;
+    const notification = await client.notification.create({
       data: {
         userId,
         type,
         title,
         message,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        data: (data as any) || {},
+        data: (data ?? {}) as Prisma.InputJsonValue,
       },
     });
 
-    // Notify user via Socket.IO
-    notifyUser(userId, SOCKET_EVENTS.QUEUE_UPDATED, {
-      type: "notification_created",
-      notification,
-    });
+    if (!transaction) {
+      notifyUser(userId, SOCKET_EVENTS.QUEUE_UPDATED, {
+        type: "notification_created",
+        notification,
+      });
+    }
 
     return notification;
   }
@@ -122,13 +124,19 @@ export class NotificationService {
   /**
    * Notify when a patient is called
    */
-  static async notifyPatientCalled(patientUserId: string, token: string, room: string) {
+  static async notifyPatientCalled(
+    patientUserId: string,
+    token: string,
+    room: string,
+    transaction?: Prisma.TransactionClient,
+  ) {
     return this.createNotification(
       patientUserId,
       "DOCTOR_CALLING",
       "Your turn in queue",
       `Your turn! Please proceed to ${room}`,
       { token, room, type: "PATIENT_CALLED" },
+      transaction,
     );
   }
 
@@ -139,6 +147,7 @@ export class NotificationService {
     patientUserId: string,
     appointmentId: string,
     date: string,
+    transaction?: Prisma.TransactionClient,
   ) {
     return this.createNotification(
       patientUserId,
@@ -146,6 +155,7 @@ export class NotificationService {
       "Appointment confirmed",
       `Your appointment is confirmed for ${date}`,
       { appointmentId, date },
+      transaction,
     );
   }
 

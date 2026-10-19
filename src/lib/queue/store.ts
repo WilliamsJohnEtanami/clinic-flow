@@ -68,7 +68,7 @@ function seed(): QueueEntry[] {
   const iso = (offsetMin: number) => new Date(now - offsetMin * 60_000).toISOString();
   const seedUserId = "seed-user-id";
   const doctorId = "doctor-001";
-  
+
   const entries: QueueEntry[] = [
     {
       id: genId(),
@@ -227,7 +227,7 @@ function writeCounter(c: Counter): void {
 
 function nextToken(priority: Priority): string {
   const c = readCounter();
-  if (priority === "emergency") {
+  if (priority === "EMERGENCY") {
     c.e += 1;
     writeCounter(c);
     return `E-${String(c.e).padStart(3, "0")}`;
@@ -321,18 +321,33 @@ export interface CreateEntryInput {
 }
 
 export function createEntry(input: CreateEntryInput): QueueEntry {
+  const patientId = genId();
+  const createdAt = new Date().toISOString();
+  const patientName = input.patientName.trim();
+  const matricNumber = input.matricNumber?.trim() || "";
   const entry: QueueEntry = {
     id: genId(),
     token: nextToken(input.priority),
-    patientName: input.patientName.trim(),
-    matricNumber: input.matricNumber?.trim() || undefined,
+    patientId,
+    patient: {
+      id: patientId,
+      fullName: patientName,
+      matricNumber,
+      phone: input.phone?.trim() || undefined,
+    },
+    patientName,
+    matricNumber: matricNumber || undefined,
     phone: input.phone?.trim() || undefined,
+    queueType: "WALK_IN",
     reason: input.reason.trim(),
     priority: input.priority,
     status: "WAITING",
     notes: input.notes?.trim() || undefined,
     registeredBy: input.registeredBy,
-    createdAt: new Date().toISOString(),
+    registeredById: input.registeredBy,
+    registeredAt: createdAt,
+    createdAt,
+    updatedAt: createdAt,
   };
   const all = readAll();
   all.push(entry);

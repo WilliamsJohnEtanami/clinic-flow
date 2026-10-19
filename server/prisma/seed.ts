@@ -1,6 +1,6 @@
 /**
  * Seeds baseline accounts for local development.
- * Run with: npm run prisma:seed
+ * Run with ALLOW_DEMO_SEED=true npm run prisma:seed.
  */
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "../src/utils/password";
@@ -8,6 +8,13 @@ import { hashPassword } from "../src/utils/password";
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("Demo seed accounts must never be created in production.");
+  }
+  if (process.env.ALLOW_DEMO_SEED !== "true") {
+    throw new Error("Set ALLOW_DEMO_SEED=true to create local demo accounts.");
+  }
+
   const seedUsers = [
     {
       email: "admin@vitaflow.edu",
@@ -29,17 +36,25 @@ async function main() {
       password: "reception123",
     },
     {
-      email: "patient@vitaflow.edu",
-      fullName: "Marcus Holloway",
+      email: "patient@example.test",
+      fullName: "Demo Patient",
       role: "PATIENT" as const,
       password: "patient123",
-      matricNumber: "CSC/2021/044",
+      matricNumber: "DEMO/0001",
     },
   ];
 
   for (const seedUser of seedUsers) {
     const existing = await prisma.user.findUnique({ where: { email: seedUser.email } });
     if (existing) continue;
+
+    if (seedUser.role === "PATIENT") {
+      const existingPatient = await prisma.patient.findUnique({
+        where: { matricNumber: seedUser.matricNumber },
+        select: { id: true },
+      });
+      if (existingPatient) continue;
+    }
 
     const passwordHash = await hashPassword(seedUser.password);
     const user = await prisma.user.create({

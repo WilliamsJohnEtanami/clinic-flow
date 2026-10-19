@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -8,11 +8,15 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { io } from "socket.io-client";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { AuthProvider } from "@/lib/auth/context";
+import { getRealtimeUrl } from "../lib/api/client";
+import { AuthProvider, useAuth } from "@/lib/auth/context";
+import { getAccessToken } from "@/lib/auth/api-hooks";
 import { Toaster } from "@/components/ui/sonner";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 
 function NotFoundComponent() {
   return (
@@ -139,9 +143,54 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <RealtimeSync />
         <Outlet />
+        <NotificationCenter />
         <Toaster position="top-right" richColors closeButton />
       </AuthProvider>
     </QueryClientProvider>
   );
+}
+
+function RealtimeSync() {
+  const { status } = useAuth();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (status === "loading") return;
+
+    const socket = io(getRealtimeUrl(), {
+      transports: ["websocket"],
+      auth: (callback) => {
+        const token = getAccessToken();
+        callback(token ? { token } : {});
+      },
+    });
+    let reportedConnectionError = false;
+    const refreshDomainQueries = () => {
+      reportedConnectionError = false;
+      void queryClient.invalidateQueries({ queryKey: ["queue"] });
+      void queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    };
+    const reportConnectionError = (error: Error) => {
+      if (!reportedConnectionError) {
+        console.error("Realtime connection failed.", error);
+        reportedConnectionError = true;
+      }
+    };
+
+    socket.on("connect", refreshDomainQueries);
+    socket.on("QUEUE_UPDATED", refreshDomainQueries);
+    socket.on("connect_error", reportConnectionError);
+
+    return () => {
+      socket.off("connect", refreshDomainQueries);
+      socket.off("QUEUE_UPDATED", refreshDomainQueries);
+      socket.off("connect_error", reportConnectionError);
+      socket.disconnect();
+    };
+  }, [queryClient, status]);
+
+  return null;
 }

@@ -10,8 +10,6 @@ async function main() {
 
   initSocketServer(httpServer);
 
-  await prisma.$connect();
-
   httpServer.listen(env.port, () => {
     console.log(`VitaFlow API listening on port ${env.port} [${env.nodeEnv}]`);
   });

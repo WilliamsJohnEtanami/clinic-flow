@@ -16,6 +16,7 @@ export function useNotificationsList(limit = 50, offset = 0) {
     },
     enabled: !!token,
     staleTime: 5000,
+    refetchInterval: 30000,
   });
 }
 
@@ -33,6 +34,7 @@ export function useUnreadNotifications(limit = 20, offset = 0) {
     },
     enabled: !!token,
     staleTime: 5000,
+    refetchInterval: 30000,
   });
 }
 

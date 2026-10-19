@@ -2,9 +2,15 @@ import crypto from "crypto";
 import { prisma } from "@/config/prisma";
 import { hashPassword, verifyPassword } from "@/utils/password";
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from "@/utils/jwt";
-import { ConflictError, UnauthorizedError } from "@/utils/errors";
+import { ConflictError, ServiceUnavailableError, UnauthorizedError } from "@/utils/errors";
 import { env } from "@/config/env";
-import type { RegisterInput, LoginInput } from "@/validation/auth.schema";
+import type {
+  LoginInput,
+  PasswordResetRequestInput,
+  PasswordResetInput,
+  RegisterInput,
+} from "@/validation/auth.schema";
+import { isPasswordResetMailConfigured, sendPasswordResetEmail } from "@/services/mail.service";
 
 interface AuthResult {
   user: {
@@ -160,5 +166,69 @@ export async function logout(refreshToken: string): Promise<void> {
   await prisma.refreshToken.updateMany({
     where: { token: refreshToken },
     data: { revoked: true },
+  });
+}
+
+export async function requestPasswordReset(input: PasswordResetRequestInput): Promise<void> {
+  if (!isPasswordResetMailConfigured()) {
+    throw new ServiceUnavailableError(
+      "Password reset email is not configured. Contact the clinic administrator.",
+    );
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: input.email },
+    select: { id: true, email: true, isActive: true },
+  });
+  if (!user || !user.isActive) return;
+
+  const token = crypto.randomBytes(32).toString("hex");
+  const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.passwordResetToken.deleteMany({ where: { userId: user.id } });
+    await tx.passwordResetToken.create({
+      data: { tokenHash, userId: user.id, expiresAt },
+    });
+  });
+
+  try {
+    await sendPasswordResetEmail(user.email, token);
+  } catch (error) {
+    await prisma.passwordResetToken.deleteMany({ where: { tokenHash } });
+    throw error;
+  }
+}
+
+export async function resetPassword(input: PasswordResetInput): Promise<void> {
+  const tokenHash = crypto.createHash("sha256").update(input.token).digest("hex");
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { user: { select: { id: true, isActive: true } } },
+  });
+  const now = new Date();
+  if (!resetToken || resetToken.expiresAt <= now || !resetToken.user.isActive) {
+    throw new UnauthorizedError("Invalid or expired password reset link.");
+  }
+
+  const passwordHash = await hashPassword(input.password);
+  await prisma.$transaction(async (tx) => {
+    const consumed = await tx.passwordResetToken.deleteMany({
+      where: { id: resetToken.id, expiresAt: { gt: now } },
+    });
+    if (consumed.count !== 1) {
+      throw new UnauthorizedError("Invalid or expired password reset link.");
+    }
+
+    await tx.user.update({
+      where: { id: resetToken.user.id },
+      data: { passwordHash },
+    });
+    await tx.refreshToken.updateMany({
+      where: { userId: resetToken.user.id, revoked: false },
+      data: { revoked: true },
+    });
+    await tx.passwordResetToken.deleteMany({ where: { userId: resetToken.user.id } });
   });
 }

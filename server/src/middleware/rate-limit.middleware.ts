@@ -9,6 +9,14 @@ export const authRateLimiter = rateLimit({
   message: { error: { message: "Too many attempts. Try again later." } },
 });
 
+export const passwordResetRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { message: "Too many password reset attempts. Try again later." } },
+});
+
 /** General API limiter. */
 export const apiRateLimiter = rateLimit({
   windowMs: 60 * 1000,

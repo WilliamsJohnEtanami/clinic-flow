@@ -39,7 +39,7 @@ export interface PatientListResponse {
   offset: number;
 }
 
-export interface PatientResponse extends Patient {
+export interface PatientResponse extends Omit<Patient, "userId"> {
   userId?: string;
   dateOfBirth?: string;
   gender?: string;
@@ -107,10 +107,8 @@ export interface Notification {
   title: string;
   message: string;
   read: boolean;
-  queueEntryId?: string;
-  appointmentId?: string;
+  data?: Record<string, unknown> | null;
   createdAt: string;
-  readAt?: string;
 }
 
 export interface NotificationListResponse {

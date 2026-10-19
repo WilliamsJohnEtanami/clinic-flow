@@ -22,7 +22,7 @@ export function initSocketServer(httpServer: HttpServer): SocketIOServer {
       socket.data.user = payload;
       next();
     } catch {
-      next(); // fall back to unauthenticated/public access
+      next(new Error("Unauthorized"));
     }
   });
 

@@ -74,16 +74,17 @@ model User {
   specialty    String? // doctor-only
   isActive     Boolean @default(true)
 
-  refreshTokens RefreshToken[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
 
-  patient          Patient?
-  queueEntriesCalled QueueEntry[]     @relation("DoctorQueueEntries")
-  consultations      Consultation[]   @relation("DoctorConsultations")
+  patient              Patient?
+  queueEntriesCalled   QueueEntry[]   @relation("DoctorQueueEntries")
+  consultations        Consultation[] @relation("DoctorConsultations")
   appointmentsAsDoctor Appointment[]  @relation("DoctorAppointments")
-  registeredEntries  QueueEntry[]     @relation("RegisteredByUser")
-  createdAppointments Appointment[]   @relation("CreatedByUser")
-  notifications      Notification[]
-  auditLogs           AuditLog[]
+  registeredEntries    QueueEntry[]   @relation("RegisteredByUser")
+  createdAppointments  Appointment[]  @relation("CreatedByUser")
+  notifications        Notification[]
+  auditLogs            AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -105,20 +106,32 @@ model RefreshToken {
   @@map("refresh_tokens")
 }
 
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
 model Patient {
-  id           String  @id @default(uuid())
-  userId       String? @unique
-  user         User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  matricNumber String? @unique
+  id           String    @id @default(uuid())
+  userId       String?   @unique
+  user         User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  matricNumber String?   @unique
   fullName     String
   phone        String?
   email        String?
   dateOfBirth  DateTime?
   gender       String?
 
-  queueEntries   QueueEntry[]
-  appointments   Appointment[]
-  consultations  Consultation[]
+  queueEntries  QueueEntry[]
+  appointments  Appointment[]
+  consultations Consultation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -132,22 +145,22 @@ model Patient {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Appointment {
-  id            String            @id @default(uuid())
-  patientId     String
-  patient       Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctorId      String?
-  doctor        User?             @relation("DoctorAppointments", fields: [doctorId], references: [id], onDelete: SetNull)
-  reason        String
-  scheduledFor  DateTime
-  durationMin   Int               @default(20)
-  status        AppointmentStatus @default(SCHEDULED)
-  notes         String?
+  id           String            @id @default(uuid())
+  patientId    String
+  patient      Patient           @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctorId     String?
+  doctor       User?             @relation("DoctorAppointments", fields: [doctorId], references: [id], onDelete: SetNull)
+  reason       String
+  scheduledFor DateTime
+  durationMin  Int               @default(20)
+  status       AppointmentStatus @default(SCHEDULED)
+  notes        String?
 
   createdById String
   createdBy   User   @relation("CreatedByUser", fields: [createdById], references: [id])
 
-  queueEntry   QueueEntry?
-  checkedInAt  DateTime?
+  queueEntry  QueueEntry?
+  checkedInAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -163,8 +176,8 @@ model Appointment {
 // ─────────────────────────────────────────────────────────────────────────
 
 model QueueEntry {
-  id     String @id @default(uuid())
-  token  String @unique // e.g. A-014 or E-003
+  id    String @id @default(uuid())
+  token String @unique // e.g. A-014 or E-003
 
   patientId String
   patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -172,8 +185,8 @@ model QueueEntry {
   appointmentId String?      @unique
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
 
-  queueType QueueType @default(WALK_IN)
-  priority  Priority  @default(ROUTINE)
+  queueType QueueType   @default(WALK_IN)
+  priority  Priority    @default(ROUTINE)
   status    QueueStatus @default(WAITING)
   reason    String
   notes     String?
@@ -186,10 +199,10 @@ model QueueEntry {
   registeredBy   User   @relation("RegisteredByUser", fields: [registeredById], references: [id])
 
   // Timing
-  registeredAt         DateTime  @default(now())
-  calledAt             DateTime?
-  consultationStartAt  DateTime?
-  consultationEndAt    DateTime?
+  registeredAt        DateTime  @default(now())
+  calledAt            DateTime?
+  consultationStartAt DateTime?
+  consultationEndAt   DateTime?
 
   // Wait-time tracking (recomputed by the EWT engine on relevant events)
   estimatedWaitMin Int?
@@ -211,8 +224,8 @@ model QueueEntry {
 // ─────────────────────────────────────────────────────────────────────────
 
 model Consultation {
-  id           String   @id @default(uuid())
-  queueEntryId String   @unique
+  id           String     @id @default(uuid())
+  queueEntryId String     @unique
   queueEntry   QueueEntry @relation(fields: [queueEntryId], references: [id], onDelete: Cascade)
 
   patientId String
@@ -281,11 +294,11 @@ model AuditLog {
 // ─────────────────────────────────────────────────────────────────────────
 
 model ClinicSetting {
-  id                    String   @id @default(uuid())
-  key                   String   @unique
-  value                 Json
-  description           String?
-  updatedAt             DateTime @updatedAt
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?
+  updatedAt   DateTime @updatedAt
 
   @@map("clinic_settings")
 }

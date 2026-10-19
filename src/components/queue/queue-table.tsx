@@ -177,6 +177,7 @@ function StatusPill({ entry }: { entry: QueueEntry }) {
       entry.priority === "EMERGENCY"
         ? "bg-emergency text-emergency-foreground"
         : "bg-muted text-muted-foreground",
+    CALLED: "bg-success-soft text-success",
     IN_CONSULTATION: "bg-success-soft text-success",
     COMPLETED: "bg-clinic-100 text-clinic-700",
     CANCELLED: "bg-destructive/10 text-destructive",

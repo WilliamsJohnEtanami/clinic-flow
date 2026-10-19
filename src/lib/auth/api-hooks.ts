@@ -6,6 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api/client";
 import type { Credentials, RegisterPayload, Session, User } from "./types";
+import { getStoredSession } from "./store";
 
 const AUTH_QUERY_KEY = ["auth", "session"];
 const ACCESS_TOKEN_KEY = "vitaflow.accessToken";
@@ -95,7 +96,8 @@ export function useRegister() {
         email: payload.email,
         password: payload.password,
         fullName: payload.fullName,
-        role: payload.role,
+        role: "PATIENT",
+        matricNumber: payload.matricNumber,
       });
       storeTokens(response.accessToken, response.refreshToken);
       return sessionFromApiResponse(response.user, response.accessToken);
@@ -155,14 +157,7 @@ export function useAuthSession() {
     queryFn: async () => {
       const tokens = getStoredTokens();
       if (!tokens) return null;
-      // In a real app, you might verify the token with the server here,
-      // but for now we'll just return a session object from the stored tokens.
-      // The token itself is opaque to the client.
-      return {
-        user: null, // Will be populated by caller using a separate endpoint
-        token: tokens.accessToken,
-        issuedAt: new Date().toISOString(),
-      } as Session | null;
+      return getStoredSession();
     },
     staleTime: Infinity, // Never auto-refetch
     retry: false,

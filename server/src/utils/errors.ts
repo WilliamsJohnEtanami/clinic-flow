@@ -34,6 +34,12 @@ export class ConflictError extends AppError {
   }
 }
 
+export class ServiceUnavailableError extends AppError {
+  constructor(message: string) {
+    super(message, 503);
+  }
+}
+
 export class ValidationError extends AppError {
   constructor(message: string, details?: unknown) {
     super(message, 422, details);

@@ -4,6 +4,7 @@ import { nextToken } from "./token-counter";
 import { rankQueueEntries, selectNextForCall, computeEstimatedWaitMinutes } from "./queue-ordering";
 import { broadcastQueueEvent, notifyUser } from "@/realtime/socket";
 import { SOCKET_EVENTS } from "@/realtime/events";
+import { NotificationService } from "@/services/notification.service";
 import type { Prisma, Priority, QueueEntry } from "@prisma/client";
 
 const DEFAULT_AVG_CONSULT_MIN = 12;
@@ -211,14 +212,28 @@ export async function callNextPatient(doctorId: string): Promise<QueueEntry> {
   );
   if (!next) throw new NotFoundError("No waiting patients in queue");
 
-  const entry = await prisma.queueEntry.update({
-    where: { id: next.id },
-    data: { status: "CALLED", calledAt: new Date(), doctorId },
+  const { entry, patientUserId } = await prisma.$transaction(async (tx) => {
+    const entry = await tx.queueEntry.update({
+      where: { id: next.id },
+      data: { status: "CALLED", calledAt: new Date(), doctorId },
+    });
+    const patient = await tx.patient.findUnique({
+      where: { id: entry.patientId },
+      select: { userId: true },
+    });
+    if (patient?.userId) {
+      await NotificationService.notifyPatientCalled(
+        patient.userId,
+        entry.token,
+        entry.room ?? "the consultation room",
+        tx,
+      );
+    }
+    return { entry, patientUserId: patient?.userId };
   });
 
   await broadcastQueueRefresh("PATIENT_CALLED", entry);
-  const patient = await prisma.patient.findUnique({ where: { id: entry.patientId } });
-  if (patient?.userId) notifyUser(patient.userId, SOCKET_EVENTS.PATIENT_CALLED, entry);
+  if (patientUserId) notifyUser(patientUserId, SOCKET_EVENTS.PATIENT_CALLED, entry);
   return entry;
 }
 

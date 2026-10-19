@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ArrowLeft, Eye, EyeOff, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -12,10 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth/context";
+import { api } from "@/lib/api/client";
 import { ROLE_HOME } from "@/lib/auth/types";
 
 const authSearchSchema = z.object({
-  mode: z.enum(["signin", "signup"]).optional(),
+  mode: z.enum(["signin", "signup", "forgot", "reset"]).optional(),
+  token: z.string().optional(),
 });
 
 export const Route = createFileRoute("/auth")({
@@ -34,8 +36,13 @@ export const Route = createFileRoute("/auth")({
 });
 
 function AuthPage() {
-  const { mode: initialMode } = Route.useSearch();
-  const [mode, setMode] = useState<"signin" | "signup">(initialMode ?? "signin");
+  const { mode: initialMode, token } = Route.useSearch();
+  const [mode, setMode] = useState<"signin" | "signup">(
+    initialMode === "signup" ? "signup" : "signin",
+  );
+  const [passwordResetMode, setPasswordResetMode] = useState<"request" | "reset" | null>(
+    initialMode === "forgot" ? "request" : initialMode === "reset" ? "reset" : null,
+  );
   const { user, status } = useAuth();
   const navigate = useNavigate();
 
@@ -97,14 +104,28 @@ function AuthPage() {
             <Logo />
           </div>
 
-          <Tabs value={mode} onValueChange={(v) => setMode(v as "signin" | "signup")}>
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="signin">Sign in</TabsTrigger>
-              <TabsTrigger value="signup">Create account</TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {passwordResetMode ? (
+            <PasswordResetForm
+              mode={passwordResetMode}
+              token={token}
+              onBack={() => setPasswordResetMode(null)}
+            />
+          ) : (
+            <>
+              <Tabs value={mode} onValueChange={(v) => setMode(v as "signin" | "signup")}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="signin">Sign in</TabsTrigger>
+                  <TabsTrigger value="signup">Create account</TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-          {mode === "signin" ? <SignInForm /> : <SignUpForm />}
+              {mode === "signin" ? (
+                <SignInForm onForgotPassword={() => setPasswordResetMode("request")} />
+              ) : (
+                <SignUpForm />
+              )}
+            </>
+          )}
 
           <p className="text-center text-xs text-muted-foreground">
             By continuing you agree to VitaFlow's clinical usage policy.
@@ -125,7 +146,7 @@ const signInSchema = z.object({
 });
 type SignInValues = z.infer<typeof signInSchema>;
 
-function SignInForm() {
+function SignInForm({ onForgotPassword }: { onForgotPassword: () => void }) {
   const { signIn } = useAuth();
   const navigate = useNavigate();
   const [showPassword, setShowPassword] = useState(false);
@@ -174,7 +195,7 @@ function SignInForm() {
           <button
             type="button"
             className="text-xs font-medium text-primary hover:underline"
-            onClick={() => toast.info("Password reset available in the full system.")}
+            onClick={onForgotPassword}
           >
             Forgot password?
           </button>
@@ -208,6 +229,130 @@ function SignInForm() {
         ) : (
           "Sign in"
         )}
+      </Button>
+    </form>
+  );
+}
+
+function PasswordResetForm({
+  mode,
+  token,
+  onBack,
+}: {
+  mode: "request" | "reset";
+  token?: string;
+  onBack: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [complete, setComplete] = useState(false);
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    try {
+      if (mode === "request") {
+        await api.auth.requestPasswordReset(email);
+      } else if (token) {
+        await api.auth.resetPassword(token, password);
+      } else {
+        throw new Error("This password reset link is missing its token.");
+      }
+      setComplete(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Password reset failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (complete) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            {mode === "request" ? "Check your email" : "Password updated"}
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {mode === "request"
+              ? "If an active account matches that email, a reset link will be sent. The link expires in 30 minutes."
+              : "Your password has been changed. Sign in with your new password."}
+          </p>
+        </div>
+        <Button type="button" variant="outline" className="w-full" onClick={onBack}>
+          Back to sign in
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-5">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {mode === "request" ? "Reset your password" : "Choose a new password"}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {mode === "request"
+            ? "Enter your account email and we’ll send you a secure reset link."
+            : "Your reset link is single-use and expires after 30 minutes."}
+        </p>
+      </div>
+
+      {mode === "request" ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="reset-email">Email</Label>
+          <Input
+            id="reset-email"
+            type="email"
+            autoComplete="email"
+            required
+            maxLength={120}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label htmlFor="reset-password">New password</Label>
+          <Input
+            id="reset-password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            maxLength={128}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </div>
+      )}
+
+      <Button
+        type="submit"
+        className="w-full"
+        size="lg"
+        disabled={submitting || (mode === "reset" && !token)}
+      >
+        {submitting ? (
+          <>
+            <Loader2 className="mr-2 size-4 animate-spin" />
+            {mode === "request" ? "Sending link…" : "Updating password…"}
+          </>
+        ) : mode === "request" ? (
+          "Send reset link"
+        ) : (
+          "Update password"
+        )}
+      </Button>
+      {mode === "reset" && !token && (
+        <p role="alert" className="text-sm text-destructive">
+          This password reset link is invalid or incomplete.
+        </p>
+      )}
+      <Button type="button" variant="ghost" className="w-full" onClick={onBack}>
+        Back to sign in
       </Button>
     </form>
   );
@@ -254,7 +399,7 @@ function SignUpForm() {
         email: values.email,
         role: values.role,
         password: values.password,
-        matricNumber: values.role === "patient" ? values.matricNumber : undefined,
+        matricNumber: values.matricNumber,
       });
       toast.success("Account created — welcome to VitaFlow.");
       navigate({ to: ROLE_HOME[s.user.role] });

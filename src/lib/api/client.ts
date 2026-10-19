@@ -17,14 +17,18 @@ import type {
 } from "./types";
 
 const API_BASE = (
-  import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4000/api" : "")
+  import.meta.env.DEV ? import.meta.env.VITE_API_URL || "http://localhost:4000/api" : "/api"
 ).replace(/\/$/, "");
 
 function getApiBase(): string {
-  if (!API_BASE) {
-    throw new Error("VITE_API_URL must be configured with the public backend URL.");
-  }
   return API_BASE;
+}
+
+export function getRealtimeUrl(): string {
+  if (typeof window === "undefined") {
+    throw new Error("The realtime URL can only be resolved in the browser.");
+  }
+  return window.location.origin;
 }
 
 function queryString(params?: Record<string, string | number | undefined>): string {
@@ -171,6 +175,18 @@ export const api = {
       request<AuthResponse>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
+      }),
+
+    requestPasswordReset: async (email: string) =>
+      request<{ message: string }>("/auth/password-reset/request", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      }),
+
+    resetPassword: async (token: string, password: string) =>
+      request<void>("/auth/password-reset/confirm", {
+        method: "POST",
+        body: JSON.stringify({ token, password }),
       }),
 
     /**

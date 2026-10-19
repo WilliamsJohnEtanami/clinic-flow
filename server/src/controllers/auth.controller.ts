@@ -1,6 +1,12 @@
 import type { Response } from "express";
 import * as authService from "@/services/auth.service";
-import { registerSchema, loginSchema, refreshSchema } from "@/validation/auth.schema";
+import {
+  loginSchema,
+  passwordResetRequestSchema,
+  passwordResetSchema,
+  refreshSchema,
+  registerSchema,
+} from "@/validation/auth.schema";
 import { asyncHandler } from "@/utils/async-handler";
 import type { AuthenticatedRequest } from "@/middleware/auth.middleware";
 
@@ -27,3 +33,21 @@ export const logoutHandler = asyncHandler(async (req: AuthenticatedRequest, res:
   if (parsed.success) await authService.logout(parsed.data.refreshToken);
   res.status(204).send();
 });
+
+export const requestPasswordResetHandler = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const input = passwordResetRequestSchema.parse(req.body);
+    await authService.requestPasswordReset(input);
+    res.status(202).json({
+      message: "If an active account matches that email, a password reset link will be sent.",
+    });
+  },
+);
+
+export const resetPasswordHandler = asyncHandler(
+  async (req: AuthenticatedRequest, res: Response) => {
+    const input = passwordResetSchema.parse(req.body);
+    await authService.resetPassword(input);
+    res.status(204).send();
+  },
+);

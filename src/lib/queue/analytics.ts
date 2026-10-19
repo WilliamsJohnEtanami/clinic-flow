@@ -217,7 +217,7 @@ export function getDoctorUtilization(entries: QueueEntry[]): DoctorStats[] {
           new Date(entry.consultationStartAt).getTime()) /
         60_000;
       if (durationMin > 0) {
-        doctorMap[entry.doctorName].durations.push(durationMin);
+        doctorMap[doctorName].durations.push(durationMin);
       }
     }
   }

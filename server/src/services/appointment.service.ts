@@ -6,6 +6,7 @@ import {
 } from "@/validation/appointment.schema";
 import { AppointmentStatus } from "@prisma/client";
 import { ConflictError, NotFoundError } from "@/utils/errors";
+import { NotificationService } from "@/services/notification.service";
 
 export class AppointmentService {
   static async getPatientForUser(userId: string) {
@@ -152,28 +153,39 @@ export class AppointmentService {
       if (!doctor || doctor.role !== "DOCTOR") throw new NotFoundError("Doctor");
     }
 
-    return prisma.appointment.create({
-      data: {
-        patientId,
-        doctorId: data.doctorId,
-        createdById: data.createdById,
-        reason: data.reason,
-        scheduledFor: new Date(data.scheduledFor),
-        durationMin: data.durationMin,
-        notes: data.notes,
-      },
-      include: {
-        patient: {
-          include: {
-            user: {
-              select: { id: true, email: true, fullName: true },
+    return prisma.$transaction(async (tx) => {
+      const appointment = await tx.appointment.create({
+        data: {
+          patientId,
+          doctorId: data.doctorId,
+          createdById: data.createdById,
+          reason: data.reason,
+          scheduledFor: new Date(data.scheduledFor),
+          durationMin: data.durationMin,
+          notes: data.notes,
+        },
+        include: {
+          patient: {
+            include: {
+              user: {
+                select: { id: true, email: true, fullName: true },
+              },
             },
           },
+          doctor: {
+            select: { id: true, email: true, fullName: true, specialty: true },
+          },
         },
-        doctor: {
-          select: { id: true, email: true, fullName: true, specialty: true },
-        },
-      },
+      });
+      if (appointment.patient.user) {
+        await NotificationService.notifyAppointmentConfirmed(
+          appointment.patient.user.id,
+          appointment.id,
+          appointment.scheduledFor.toISOString(),
+          tx,
+        );
+      }
+      return appointment;
     });
   }
 
