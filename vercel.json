@@ -2,8 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "services": {
     "app": {
-      "root": ".",
-      "buildCommand": "NITRO_PRESET=vercel npm run build"
+  "root": ".",
+  "framework": "tanstack-start",
+  "buildCommand": "NITRO_PRESET=vercel npm run build"
     },
     "server": {
       "root": "server",
